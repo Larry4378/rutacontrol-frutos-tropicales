@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.pnpm-store/
+docx_render/
+*.log
+.env
+.env.*

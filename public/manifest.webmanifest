@@ -1,0 +1,13 @@
+{
+  "name": "RutaControl - Frutos Tropicales",
+  "short_name": "RutaControl",
+  "description": "Control de recorridos y vehículos de Frutos Tropicales Export Perú.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f4f7ed",
+  "theme_color": "#17633c",
+  "lang": "es-PE",
+  "icons": [
+    { "src": "./icons/rutacontrol.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

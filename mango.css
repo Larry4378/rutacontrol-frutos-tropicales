@@ -1,0 +1,33 @@
+/* Motivos de mango discretos, para conservar la lectura de los datos. */
+body {
+  background:
+    radial-gradient(ellipse at 91% 8%, #ffc94c 0 5%, #d49217 5.2% 8%, transparent 8.2%),
+    radial-gradient(ellipse at 96% 3%, #608c36 0 7%, transparent 7.2%),
+    radial-gradient(ellipse at 7% 92%, #ffc94c 0 5%, #d49217 5.2% 8%, transparent 8.2%),
+    radial-gradient(ellipse at 2% 96%, #608c36 0 7%, transparent 7.2%),
+    radial-gradient(circle at 89% 8%, #d5ecbe 0, transparent 25%),
+    radial-gradient(circle at 31% 100%, #e8e5ae 0, transparent 31%),
+    var(--bg);
+}
+
+.delete, .edit { border: 0; background: none; cursor: pointer; }
+.delete { color: #a5afb5; font-size: 17px; }
+.delete:hover { color: var(--red); }
+.edit { color: var(--teal); font: 600 11px "DM Sans", sans-serif; padding: 3px 7px; }
+.edit:hover { text-decoration: underline; }
+
+.evidence-preview { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.evidence-preview img, .evidence-preview video { width: 116px; height: 78px; object-fit: cover; border: 1px solid var(--line); border-radius: 7px; background: #edf0e8; }
+.evidence-preview small { color: var(--muted); }
+
+.login-screen { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 20px; background: linear-gradient(135deg, #123c31d9, #5f8c32d9), radial-gradient(circle at 85% 15%, #ffc94c 0 6%, transparent 6.5%); }
+.login-screen.hidden { display: none; }
+.login-card { width: min(390px, 100%); padding: 32px; border-radius: 18px; background: #fffffff5; box-shadow: 0 25px 70px #10251c80; display: grid; gap: 10px; }
+.login-card .primary { margin-top: 8px; }
+.login-card small { color: var(--muted); text-align: center; margin-top: 8px; }
+.login-fruit { width: 48px; height: 48px; border-radius: 45% 55% 50% 50%; display: grid; place-items: center; background: #ffc94c; color: #d49217; font-size: 25px; }
+.login-error { min-height: 18px; color: var(--red); margin: 0; }
+.header-actions { display: flex; align-items: center; gap: 10px; }
+.session-name { font-size: 12px; color: var(--muted); }
+.driver-form { margin-top: 17px; }
+@media(max-width:700px){.header-actions{flex-wrap:wrap}.session-name{width:100%}}
