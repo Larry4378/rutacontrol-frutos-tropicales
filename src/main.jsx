@@ -19,13 +19,6 @@ const currentKm = (data, vehicle) => Math.max(Number(vehicle.km || 0), ...data.t
 const today = () => { const local = new Date(); local.setMinutes(local.getMinutes() - local.getTimezoneOffset()); return local.toISOString().slice(0, 10); };
 const now = () => new Date().toTimeString().slice(0, 8);
 let routeGpsWatch = null;
-// Algunos navegadores móviles ocultan los segundos en los controles type="time".
-// Al haber una hora precisa, la mostramos como texto para que HH:MM:SS siempre sea visible.
-setInterval(() => {
-  document.querySelectorAll('input[type="time"][readonly]').forEach(input => {
-    if (/^\d{2}:\d{2}:\d{2}$/.test(input.value)) input.type = 'text';
-  });
-}, 500);
 const receiptInfo = text => { const lines=text.split(/\r?\n/).map(x=>x.trim()).filter(Boolean); const i=lines.findIndex(x=>/(monto\s*final|costo\s*total|importe\s*total|total\s*(a\s*pagar|venta)?)/i.test(x)); const totalLines=i>=0?[lines[i],lines[i+1]||'']:lines; const values=totalLines.join(' ').match(/\d{1,4}[.,]\d{2}\b/g)||[]; const total=Math.max(...values.map(x=>Number(x.replace(',','.'))).filter(x=>x>0)); const provider=lines.find(x=>/(primax|repsol|petroperu|puma|pecsa|full|grifo|estaci[oó]n)/i.test(x))||''; return {total,provider:provider.replace(/^(grifo|estaci[oó]n(?: de servicio)?)\s*[:.-]?\s*/i,'')}; };
 
 function App() {
