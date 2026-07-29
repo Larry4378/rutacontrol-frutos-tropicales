@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">RutaControl</string>
+    <string name="title_activity_main">RutaControl</string>
+    <string name="package_name">com.frutostropicales.rutacontrol</string>
+    <string name="custom_url_scheme">com.frutostropicales.rutacontrol</string>
+</resources>

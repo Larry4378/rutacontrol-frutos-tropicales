@@ -9,6 +9,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@capacitor/android": "^8.4.2",
+    "@capacitor/core": "^8.4.2",
     "@supabase/supabase-js": "2.95.3",
     "@vitejs/plugin-react": "latest",
     "leaflet": "^1.9.4",
@@ -16,5 +18,9 @@
     "react-dom": "latest",
     "tesseract.js": "^7.0.0",
     "vite": "latest"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^8.4.2"
   }
 }
