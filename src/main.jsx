@@ -113,7 +113,9 @@ function VehicleModal({ record = {}, onClose, onSave }) {
 
   const submit = event => {
     event.preventDefault();
-    onSave({ ...form, id: form.id || id() });
+    // Un vehículo nuevo no debe traer id: Supabase genera el identificador al insertarlo.
+    // Si se envía un id aquí, el guardado se interpreta como una edición de un registro inexistente.
+    onSave({ ...form });
   };
 
   return <dialog open className="maintenance-modal"><form onSubmit={submit}>
