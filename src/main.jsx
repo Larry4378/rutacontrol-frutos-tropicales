@@ -44,12 +44,19 @@ function App() {
       });
   }, [session]);
   const update = async (collection, record) => {
-    if (collection !== 'vehicles') return setData(previous => ({ ...previous, [collection]: previous[collection].some(x => x.id === record.id) ? previous[collection].map(x => x.id === record.id ? record : x) : [...previous[collection], { ...record, id: record.id || id() }] }));
+    if (collection !== 'vehicles') {
+      setData(previous => ({ ...previous, [collection]: previous[collection].some(x => x.id === record.id) ? previous[collection].map(x => x.id === record.id ? record : x) : [...previous[collection], { ...record, id: record.id || id() }] }));
+      return true;
+    }
     const vehicle = { plate: record.plate.trim().toUpperCase(), brand: record.brand, model: record.model, ownership: record.ownership, current_km: Number(record.km), status: record.status || 'Disponible' };
-    const request = record.id ? supabase.from('vehicles').update(vehicle).eq('id', record.id).select().single() : supabase.from('vehicles').insert(vehicle).select().single();
-    const { data: saved, error: saveError } = await request;
-    if (saveError) return alert(`No se pudo guardar el vehículo: ${saveError.message}`);
+    // select() devuelve una lista; usar single() generaba un error si Supabase no devolvía una fila.
+    const request = record.id ? supabase.from('vehicles').update(vehicle).eq('id', record.id).select() : supabase.from('vehicles').insert(vehicle).select();
+    const { data: savedRows, error: saveError } = await request;
+    if (saveError) { alert(`No se pudo guardar el vehículo: ${saveError.message}`); return false; }
+    const saved = savedRows?.[0];
+    if (!saved) { alert('El vehículo no pudo confirmarse en Supabase. Verifica que hayas iniciado sesión como administrador.'); return false; }
     setData(previous => ({ ...previous, vehicles: previous.vehicles.some(item => item.id === saved.id) ? previous.vehicles.map(item => item.id === saved.id ? { ...saved, km: saved.current_km } : item) : [...previous.vehicles, { ...saved, km: saved.current_km }] }));
+    return true;
   };
   const beginRouteTracking = trip => { if (!navigator.geolocation) return; if (routeGpsWatch !== null) navigator.geolocation.clearWatch(routeGpsWatch); let tracked = trip; routeGpsWatch = navigator.geolocation.watchPosition(position => { const point={lat:position.coords.latitude,lng:position.coords.longitude,at:new Date().toISOString(),accuracy:Math.round(position.coords.accuracy)}; tracked={...tracked,routePoints:[...(tracked.routePoints||[]),point]}; update('trips',tracked); }, () => {}, {enableHighAccuracy:true,maximumAge:5000,timeout:15000}); };
   const remove = async (collection, recordId) => { if (!confirm('¿Eliminar este registro?')) return; if (collection === 'vehicles') { const { error: deleteError } = await supabase.from('vehicles').delete().eq('id', recordId); if (deleteError) return alert(`No se pudo eliminar el vehículo: ${deleteError.message}`); } setData(previous => ({ ...previous, [collection]: previous[collection].filter(x => x.id !== recordId) })); };
@@ -72,7 +79,7 @@ function App() {
     {modal?.type === 'quickDeparture' && <><DepartureGpsRequired data={data} onClose={() => setModal(null)} onSave={record => { const saved={...record,...(window.departureEvidence||{}),departureDate:today(),departureTime:now()}; update('trips',saved); beginRouteTracking(saved); setModal(null); }} /><EvidenceInjector/></>}
     {modal?.type === 'quickReturn' && <ArrivalSimple data={data} onClose={() => setModal(null)} onSave={record => { if(routeGpsWatch !== null){navigator.geolocation.clearWatch(routeGpsWatch);routeGpsWatch=null;} update('trips',{...record,returnDate:today(),returnTime:now()}); setModal(null); }} />}
     {modal?.type === 'maintenance' && <MaintenanceModal record={modal.record} data={data} onClose={() => setModal(null)} onSave={record => { update('maintenance',record); setModal(null); }} />}
-    {modal?.type === 'vehicle' && <VehicleModal record={modal.record} onClose={() => setModal(null)} onSave={record => { update('vehicles',record); setModal(null); }} />}
+    {modal?.type === 'vehicle' && <VehicleModal record={modal.record} onClose={() => setModal(null)} onSave={async record => { if (await update('vehicles', record)) setModal(null); }} />}
     {modal?.type === 'fuel' && <FuelModalFast record={modal.record} data={data} onClose={() => setModal(null)} onSave={record => { update('fuels',{...record,date:record.date||today(),time:record.time||now()}); setModal(null); }} />}
     {modal && !['quickDeparture','quickReturn','maintenance','vehicle','fuel'].includes(modal.type) && <RecordModal type={modal.type} record={modal.record} data={data} onClose={() => setModal(null)} onSave={(collection, record) => { update(collection,record); setModal(null); }} />}
   </>;
