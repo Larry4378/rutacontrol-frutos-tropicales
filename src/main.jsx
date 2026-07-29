@@ -144,7 +144,7 @@ function VehicleModal({ record = {}, onClose, onSave }) {
     <button type="button" className="close maintenance-close" onClick={onClose}>×</button>
     <div className="form-grid maintenance-grid-form">
       <div className="field"><label>Placa</label><input required value={form.plate || ''} onChange={event => change('plate', event.target.value)} /></div>
-      <div className="field"><label>Tipo de vehículo</label><select required value={form.vehicle_type || 'Camioneta'} onChange={event => change('vehicle_type', event.target.value)}><option>Moto</option><option>Auto</option><option>Camioneta</option><option>Minivan</option><option>Camión</option><option>Otro</option></select></div>
+      <div className="field"><label>Tipo de vehículo</label><select required value={form.vehicle_type || 'Camioneta'} onChange={event => change('vehicle_type', event.target.value)}><option>Moto</option><option>Auto</option><option>Camioneta</option><option>Otro</option></select></div>
       <div className="field"><label>Marca</label><input required value={form.brand || ''} onChange={event => change('brand', event.target.value)} /></div>
       <div className="field"><label>Modelo</label><input required value={form.model || ''} onChange={event => change('model', event.target.value)} /></div>
       <div className="field"><label>Tipo de propiedad</label><select required value={form.ownership || ''} onChange={event => change('ownership', event.target.value)}><option value="">Seleccionar</option><option value="Propio">Propio de la empresa</option><option value="Alquilado">Alquilado</option></select></div>
