@@ -35,9 +35,24 @@ function App() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, nextSession) => setSession(nextSession));
     return () => subscription.unsubscribe();
   }, []);
-  const update = (collection, record) => setData(previous => ({ ...previous, [collection]: previous[collection].some(x => x.id === record.id) ? previous[collection].map(x => x.id === record.id ? record : x) : [...previous[collection], { ...record, id: record.id || id() }] }));
+  useEffect(() => {
+    if (!session) return;
+    supabase.from('vehicles').select('id, plate, brand, model, current_km, ownership, status').order('plate')
+      .then(({ data: vehicles, error: loadError }) => {
+        if (loadError) return setError(`No se pudieron cargar los vehículos: ${loadError.message}`);
+        setData(previous => ({ ...previous, vehicles: vehicles.map(vehicle => ({ ...vehicle, km: vehicle.current_km })) }));
+      });
+  }, [session]);
+  const update = async (collection, record) => {
+    if (collection !== 'vehicles') return setData(previous => ({ ...previous, [collection]: previous[collection].some(x => x.id === record.id) ? previous[collection].map(x => x.id === record.id ? record : x) : [...previous[collection], { ...record, id: record.id || id() }] }));
+    const vehicle = { plate: record.plate.trim().toUpperCase(), brand: record.brand, model: record.model, ownership: record.ownership, current_km: Number(record.km), status: record.status || 'Disponible' };
+    const request = record.id ? supabase.from('vehicles').update(vehicle).eq('id', record.id).select().single() : supabase.from('vehicles').insert(vehicle).select().single();
+    const { data: saved, error: saveError } = await request;
+    if (saveError) return alert(`No se pudo guardar el vehículo: ${saveError.message}`);
+    setData(previous => ({ ...previous, vehicles: previous.vehicles.some(item => item.id === saved.id) ? previous.vehicles.map(item => item.id === saved.id ? { ...saved, km: saved.current_km } : item) : [...previous.vehicles, { ...saved, km: saved.current_km }] }));
+  };
   const beginRouteTracking = trip => { if (!navigator.geolocation) return; if (routeGpsWatch !== null) navigator.geolocation.clearWatch(routeGpsWatch); let tracked = trip; routeGpsWatch = navigator.geolocation.watchPosition(position => { const point={lat:position.coords.latitude,lng:position.coords.longitude,at:new Date().toISOString(),accuracy:Math.round(position.coords.accuracy)}; tracked={...tracked,routePoints:[...(tracked.routePoints||[]),point]}; update('trips',tracked); }, () => {}, {enableHighAccuracy:true,maximumAge:5000,timeout:15000}); };
-  const remove = (collection, recordId) => { if (confirm('¿Eliminar este registro?')) setData(previous => ({ ...previous, [collection]: previous[collection].filter(x => x.id !== recordId) })); };
+  const remove = async (collection, recordId) => { if (!confirm('¿Eliminar este registro?')) return; if (collection === 'vehicles') { const { error: deleteError } = await supabase.from('vehicles').delete().eq('id', recordId); if (deleteError) return alert(`No se pudo eliminar el vehículo: ${deleteError.message}`); } setData(previous => ({ ...previous, [collection]: previous[collection].filter(x => x.id !== recordId) })); };
   const tripsKm = data.trips.reduce((total, trip) => total + (trip.endKm ? Math.max(0, Number(trip.endKm) - Number(trip.startKm)) : 0), 0);
   const nav = [['dashboard','▦','Inicio'],['trips','↗','Recorridos'],['maintenance','♧','Mantenimiento'],['fuel','◉','Combustible'],['vehicles','▣','Vehículos'],['reports','⇩','Reportes']];
   const title = { dashboard:'Inicio',trips:'Historial de recorridos',maintenance:'Mantenimiento y afinamiento',fuel:'Control de combustible',expenses:'Gastos y reparaciones',vehicles:'Vehículos',reports:'Reportes' }[view];
