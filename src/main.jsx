@@ -13,6 +13,11 @@ import './maintenance-clean.css';
 const empty = { vehicles: [], trips: [], maintenance: [], fuels: [], expenses: [] };
 const read = () => JSON.parse(localStorage.getItem('rutacontrol-react') || localStorage.getItem('rutacontrol-v2') || 'null') || empty;
 const id = () => crypto.randomUUID();
+const secretHash = async value => {
+  const bytes = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(digest)).map(byte => byte.toString(16).padStart(2, '0')).join('');
+};
 const date = value => value ? new Intl.DateTimeFormat('es-PE', { dateStyle: 'medium' }).format(new Date(`${value}T12:00:00`)) : '—';
 const money = value => `S/ ${Number(value || 0).toFixed(2)}`;
 const currentKm = (data, vehicle) => Math.max(Number(vehicle.km || 0), ...data.trips.filter(t => t.vehicleId === vehicle.id).map(t => Number(t.endKm || t.startKm || 0)));
@@ -62,9 +67,19 @@ function App() {
   const remove = async (collection, recordOrId) => {
     const recordId = typeof recordOrId === 'object' ? recordOrId.id : recordOrId;
     if (collection === 'vehicles') {
-      const plate = String(recordOrId.plate || '').trim().toUpperCase();
-      const typedPlate = prompt(`Protección contra eliminación accidental.\n\nPara eliminar el vehículo ${plate}, escribe su placa exactamente.`);
-      if (typedPlate?.trim().toUpperCase() !== plate) return alert('El vehículo no fue eliminado. La placa no coincide.');
+      const keyName = `rutacontrol-delete-key:${session.user.id}`;
+      const configuredHash = localStorage.getItem(keyName);
+      if (!configuredHash) {
+        const newKey = prompt('Crea tu clave de eliminación. Debe tener al menos 6 caracteres.');
+        if (!newKey) return;
+        if (newKey.length < 6) return alert('La clave debe tener como mínimo 6 caracteres.');
+        const confirmation = prompt('Repite la clave de eliminación para confirmarla.');
+        if (newKey !== confirmation) return alert('Las claves no coinciden. El vehículo no fue eliminado.');
+        localStorage.setItem(keyName, await secretHash(newKey));
+        return alert('Clave creada correctamente. Presiona “Eliminar” nuevamente e ingresa tu clave para borrar el vehículo.');
+      }
+      const enteredKey = prompt('Ingresa tu clave de eliminación para confirmar el borrado del vehículo.');
+      if (!enteredKey || await secretHash(enteredKey) !== configuredHash) return alert('Clave incorrecta. El vehículo no fue eliminado.');
     } else if (!confirm('¿Eliminar este registro?')) return;
     if (collection === 'vehicles') { const { error: deleteError } = await supabase.from('vehicles').delete().eq('id', recordId); if (deleteError) return alert(`No se pudo eliminar el vehículo: ${deleteError.message}`); }
     setData(previous => ({ ...previous, [collection]: previous[collection].filter(x => x.id !== recordId) }));
@@ -102,7 +117,7 @@ function Metric({label,value,note}) { return <div className="metric"><span class
 function List({title,text,onAdd,hideAdd=false,children}) { return <section><div className="section-head"><div><h2>{title}</h2><p>{text}</p></div>{!hideAdd&&<button className="primary" onClick={onAdd}>+ Agregar</button>}</div>{children}</section>; }
 const vehicleName=(data,vehicleId)=>data.vehicles.find(v=>v.id===vehicleId)?.plate || 'Vehículo eliminado';
 const Actions=({onEdit,onDelete})=><><button className="edit" onClick={onEdit}>Editar</button><button className="delete" onClick={onDelete}>×</button></>;
-const VehicleActions=({onEdit,onDelete})=><><button className="edit" onClick={onEdit}>Editar</button><button className="delete" title="Solicita la placa antes de eliminar" onClick={onDelete}>Eliminar…</button></>;
+const VehicleActions=({onEdit,onDelete})=><><button className="edit" onClick={onEdit}>Editar</button><button className="delete" title="Solicita la clave de seguridad antes de eliminar" onClick={onDelete}>Eliminar</button></>;
 function Table({heads,children}) { return <div className="panel table-panel"><table><thead><tr>{heads.map(head=><th key={head}>{head}</th>)}</tr></thead><tbody>{children}</tbody></table></div>; }
 function Trips({data,onEdit,onDelete}) { const [filters,setFilters]=useState({search:'',date:'',vehicleId:'',driver:'',status:''}); const filtered=data.trips.filter(t=>{const query=filters.search.trim().toLowerCase();const searchable=[vehicleName(data,t.vehicleId),t.driver,t.origin,t.destination].join(' ').toLowerCase();return (!query||searchable.includes(query))&&(!filters.date||t.departureDate===filters.date)&&(!filters.vehicleId||t.vehicleId===filters.vehicleId)&&(!filters.driver||t.driver===filters.driver)&&(!filters.status||(filters.status==='En ruta'?!t.endKm:!!t.endKm));}); const drivers=[...new Set(data.trips.map(t=>t.driver).filter(Boolean))]; return <><div className="trip-filters"><input aria-label="Buscar recorridos" placeholder="Buscar placa, chofer, origen o destino" value={filters.search} onChange={e=>setFilters({...filters,search:e.target.value})}/><input aria-label="Filtrar por fecha" type="date" value={filters.date} onChange={e=>setFilters({...filters,date:e.target.value})}/><select aria-label="Filtrar por vehículo" value={filters.vehicleId} onChange={e=>setFilters({...filters,vehicleId:e.target.value})}><option value="">Todos los vehículos</option>{data.vehicles.map(v=><option value={v.id} key={v.id}>{v.plate}</option>)}</select><select aria-label="Filtrar por chofer" value={filters.driver} onChange={e=>setFilters({...filters,driver:e.target.value})}><option value="">Todos los choferes</option>{drivers.map(driver=><option key={driver}>{driver}</option>)}</select><select aria-label="Filtrar por estado" value={filters.status} onChange={e=>setFilters({...filters,status:e.target.value})}><option value="">Todos los estados</option><option>En ruta</option><option>Finalizado</option></select></div><Table heads={['Salida','Vehículo','Chofer','Origen → destino','Odómetro','Total','']} >{filtered.slice().reverse().map(t=><tr key={t.id}><td>{date(t.departureDate)}<br/><span>{t.departureTime}</span></td><td>{vehicleName(data,t.vehicleId)}</td><td>{t.driver}</td><td>{t.origin} → {t.destination}</td><td>{t.startKm} → {t.endKm || 'Pendiente'}</td><td>{t.endKm ? `${Number(t.endKm)-Number(t.startKm)} km` : <span className="badge warn">En ruta</span>}</td><td><Actions onEdit={()=>onEdit(t)} onDelete={()=>onDelete(t)}/></td></tr>)}</Table>{filtered.length===0&&<p className="empty-message">No hay recorridos que coincidan con los filtros.</p>}</>; }
 function Maintenance({data,onEdit,onDelete}) { return <Table heads={['Fecha','Vehículo','Servicio','Próxima fecha / km','']} >{data.maintenance.slice().reverse().map(x=><tr key={x.id}><td>{date(x.date)}</td><td>{vehicleName(data,x.vehicleId)}</td><td>{x.type}</td><td>{x.nextDate || '—'} {x.nextKm ? ` / ${x.nextKm} km` : ''}</td><td><Actions onEdit={()=>onEdit(x)} onDelete={()=>onDelete(x)}/></td></tr>)}</Table>; }
