@@ -109,13 +109,21 @@ function App() {
 
 function Login({ onLogin, onDriverLogin, error }) {
   const [driverMode, setDriverMode] = useState(false);
+  const [rememberDriver, setRememberDriver] = useState(() => localStorage.getItem('rutacontrol_remember_driver') === 'true');
   const submit = event => {
     event.preventDefault();
     const values = event.target;
-    if(driverMode) return onDriverLogin(values.accessCode.value.trim().toUpperCase(), values.pin.value);
+    if(driverMode) {
+      const accessCode = values.accessCode.value.trim().toUpperCase();
+      if (rememberDriver) localStorage.setItem('rutacontrol_driver_code', accessCode);
+      else localStorage.removeItem('rutacontrol_driver_code');
+      localStorage.setItem('rutacontrol_remember_driver', String(rememberDriver));
+      return onDriverLogin(accessCode, values.pin.value);
+    }
     return onLogin(values.email.value, values.password.value);
   };
-  return <section className="login-screen"><form className="login-card" onSubmit={submit}><div className="login-fruit">●</div><p className="eyebrow">FRUTOS TROPICALES EXPORT. PERÚ</p><h1>{driverMode?'Acceso de conductor':'Control vehicular'}</h1><p>{driverMode?'Ingresa el código y PIN entregados por el administrador.':'Ingresa con tu correo y contraseña.'}</p>{driverMode?<><label>Código de acceso</label><input name="accessCode" required autoFocus placeholder="Ejemplo: RGARCIA" pattern="[A-Za-z0-9_-]{4,20}"/><label>PIN de 6 números</label><input name="pin" required type="password" inputMode="numeric" pattern="\d{6}" maxLength="6" placeholder="••••••"/></>:<><label>Correo electrónico</label><input name="email" type="email" required autoFocus placeholder="correo@empresa.com"/><label>Contraseña</label><input name="password" type="password" required minLength="6" placeholder="Mínimo 6 caracteres"/></>}<p className="login-error">{error}</p><button className="primary">{driverMode?'Ingresar como conductor':'Ingresar'}</button><button type="button" className="secondary" onClick={()=>setDriverMode(value=>!value)}>{driverMode?'Ingresar como administrador':'Conductor'}</button><small>Acceso protegido por Supabase.</small></form></section>;
+  const savedDriverCode = localStorage.getItem('rutacontrol_driver_code') || '';
+  return <section className="login-screen"><form className="login-card" onSubmit={submit}><div className="login-fruit">●</div><p className="eyebrow">FRUTOS TROPICALES EXPORT. PERÚ</p><h1>{driverMode?'Acceso de conductor':'Control vehicular'}</h1><p>{driverMode?'Ingresa el código y PIN entregados por el administrador.':'Ingresa con tu correo y contraseña.'}</p>{driverMode?<><label>Código de acceso</label><input name="accessCode" required autoFocus defaultValue={savedDriverCode} placeholder="Ejemplo: RGARCIA" pattern="[A-Za-z0-9_-]{4,20}"/><label>PIN de 6 números</label><input name="pin" required type="password" inputMode="numeric" pattern="\d{6}" maxLength="6" placeholder="••••••"/><label className="remember-driver"><input type="checkbox" checked={rememberDriver} onChange={event=>setRememberDriver(event.target.checked)}/> Recordar mi código en este equipo</label></>:<><label>Correo electrónico</label><input name="email" type="email" required autoFocus placeholder="correo@empresa.com"/><label>Contraseña</label><input name="password" type="password" required minLength="6" placeholder="Mínimo 6 caracteres"/></>}<p className="login-error">{error}</p><button className="primary">{driverMode?'Ingresar como conductor':'Ingresar'}</button><button type="button" className="secondary" onClick={()=>setDriverMode(value=>!value)}>{driverMode?'Ingresar como administrador':'Conductor'}</button><small>Acceso protegido por Supabase.</small></form></section>;
 }
 function Dashboard({ data, onDeparture, onReturn, onTripUpdate, tripForm }) { return <><MangoQuickActions onDeparture={onDeparture} onReturn={onReturn}/>{tripForm}<RouteMap data={data} onUpdate={onTripUpdate}/></>; }
 function MangoQuickActions({onDeparture,onReturn}) { return <section className="mango-actions"><div><p className="eyebrow">ACCESO RÁPIDO</p><h2>¿El vehículo sale o llega?</h2><p>Registra el movimiento con un toque.</p></div><div className="mango-buttons"><button className="mango-button departure" onClick={onDeparture}><i className="mango-fruit"/><span>Registrar<br/><b>Salida</b></span></button><button className="mango-button arrival" onClick={onReturn}><i className="mango-fruit"/><span>Registrar<br/><b>Llegada</b></span></button></div></section>; }

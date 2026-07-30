@@ -24,6 +24,8 @@ body {
 .login-screen.hidden { display: none; }
 .login-card { width: min(390px, 100%); padding: 32px; border-radius: 18px; background: #fffffff5; box-shadow: 0 25px 70px #10251c80; display: grid; gap: 10px; }
 .login-card .primary { margin-top: 8px; }
+.remember-driver { display: flex; align-items: center; gap: 8px; margin-top: 2px; cursor: pointer; }
+.remember-driver input { width: auto; accent-color: var(--teal); }
 .login-card small { color: var(--muted); text-align: center; margin-top: 8px; }
 .login-fruit { width: 48px; height: 48px; border-radius: 45% 55% 50% 50%; display: grid; place-items: center; background: #ffc94c; color: #d49217; font-size: 25px; }
 .login-error { min-height: 18px; color: var(--red); margin: 0; }
