@@ -124,6 +124,25 @@ function Reports({data}) { const download=()=>{const rows=[['Tipo','Fecha','Veh�
 function UsersPage({drivers,onChanged}) {
   const [form,setForm]=useState({fullName:'',accessCode:'',pin:''});
   const [message,setMessage]=useState('');
+  const request=async body=>{
+    setMessage('Creando acceso…');
+    try {
+      const {data:{session}}=await supabase.auth.getSession();
+      const response=await fetch('https://idwyvmhfyfsklykxmcdm.supabase.co/functions/v1/quick-taskmanage-drivers',{
+        method:'POST',
+        headers:{Authorization:`Bearer ${session?.access_token||''}`,'Content-Type':'application/json'},
+        body:JSON.stringify(body)
+      });
+      const result=await response.json().catch(()=>({}));
+      if(!response.ok||result?.error){setMessage(result?.error||'No se pudo crear el acceso.');return null;}
+      await onChanged();
+      setMessage('Chofer creado correctamente. Entrega su código y PIN de forma privada.');
+      return result;
+    } catch {
+      setMessage('No se pudo conectar con el servicio de usuarios. Intenta nuevamente.');
+      return null;
+    }
+  };
   const savePermissions=async(driver,permissions)=>{
     const {error}=await supabase.from('user_profiles').update({permissions}).eq('id',driver.id);
     if(error){setMessage(error.message);return false;}
@@ -131,8 +150,8 @@ function UsersPage({drivers,onChanged}) {
     onChanged();
     return true;
   };
-  const create=event=>{event.preventDefault();setMessage('La creación se realiza con el servicio de usuarios.');};
-  return <section className="users-page"><div className="users-intro"><p className="eyebrow">ADMINISTRACIÓN</p><h2>Choferes y accesos</h2><p>Autoriza exactamente qué puede ver y usar cada chofer.</p></div><div className="grid-two"><form className="panel users-form" onSubmit={create}><h2>Nuevo chofer</h2><label>Nombre completo</label><input required value={form.fullName} onChange={event=>setForm({...form,fullName:event.target.value})}/><label>Código de acceso</label><input required value={form.accessCode} onChange={event=>setForm({...form,accessCode:event.target.value.toUpperCase()})}/><label>PIN inicial de 6 números</label><input required value={form.pin} onChange={event=>setForm({...form,pin:event.target.value})}/><button className="primary">Crear acceso</button></form><article className="panel"><h2>Permisos</h2><p className="users-message">{message||'Los cambios se guardan para cada chofer.'}</p></article></div><section className="panel users-list"><h2>Choferes registrados</h2>{drivers.map(driver=><article className="driver-card" key={driver.id}><div><b>{driver.full_name}</b><small>{driver.access_code}</small><Permissions driver={driver} onSave={savePermissions}/></div></article>)}</section></section>;
+  const create=async event=>{event.preventDefault();const result=await request({action:'create',...form});if(result)setForm({fullName:'',accessCode:'',pin:''});};
+  return <section className="users-page"><div className="users-intro"><p className="eyebrow">ADMINISTRACIÓN</p><h2>Choferes y accesos</h2><p>Autoriza exactamente qué puede ver y usar cada chofer.</p></div><div className="grid-two"><form className="panel users-form" onSubmit={create}><h2>Nuevo chofer</h2><label>Nombre completo</label><input required value={form.fullName} onChange={event=>setForm({...form,fullName:event.target.value})}/><label>Código de acceso</label><input required value={form.accessCode} onChange={event=>setForm({...form,accessCode:event.target.value.toUpperCase()})} pattern="[A-Za-z0-9_-]{4,20}"/><label>PIN inicial de 6 números</label><input required value={form.pin} onChange={event=>setForm({...form,pin:event.target.value.replace(/\D/g,'').slice(0,6)})} inputMode="numeric" pattern="\d{6}"/><button className="primary">Crear acceso</button></form><article className="panel"><h2>Permisos</h2><p className="users-message">{message||'Los cambios se guardan para cada chofer.'}</p></article></div><section className="panel users-list"><h2>Choferes registrados</h2>{drivers.map(driver=><article className="driver-card" key={driver.id}><div><b>{driver.full_name}</b><small>{driver.access_code}</small><Permissions driver={driver} onSave={savePermissions}/></div></article>)}</section></section>;
 }
 function Permissions({driver,onSave}) {
   const defaults={departure:true,arrival:true,trips:true,fuel:false,maintenance:false};
