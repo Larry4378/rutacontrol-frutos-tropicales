@@ -31,8 +31,10 @@ function App() {
   const [profile, setProfile] = useState(null);
   const [drivers, setDrivers] = useState([]);
   const [driverPreview, setDriverPreview] = useState(false);
+  const [showSplash, setShowSplash] = useState(true);
 
   useEffect(() => localStorage.setItem('rutacontrol-react', JSON.stringify(data)), [data]);
+  useEffect(() => { const timer = setTimeout(() => setShowSplash(false), 1100); return () => clearTimeout(timer); }, []);
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => { setSession(session); setAuthReady(true); });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, nextSession) => setSession(nextSession));
@@ -87,6 +89,7 @@ function App() {
   const nav = profile?.role === 'admin' && !driverPreview ? adminNav : [['dashboard','▦','Inicio']];
   const title = { dashboard:'Inicio',trips:'Historial de recorridos',maintenance:'Mantenimiento y afinamiento',fuel:'Control de combustible',expenses:'Gastos y reparaciones',vehicles:'Vehículos',users:'Usuarios y accesos',reports:'Reportes' }[view];
 
+  if (showSplash) return <SplashScreen/>;
   if (!authReady) return <section className="login-screen"><div className="login-card"><p>Conectando con RutaControl…</p></div></section>;
   if (!session) return <Login error={error} onLogin={async (email, password) => { setError(''); const { error } = await supabase.auth.signInWithPassword({ email, password }); if (error) setError(error.message); }} onDriverLogin={async (accessCode, pin) => { setError(''); try { const response=await fetch('https://idwyvmhfyfsklykxmcdm.supabase.co/functions/v1/driver-login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({accessCode,pin})}); const result=await response.json().catch(()=>({})); if(!response.ok||result?.error) return setError(result?.error||'No se pudo iniciar sesión.'); const {error: sessionError}=await supabase.auth.setSession(result.session); if(sessionError)setError(sessionError.message); } catch { setError('No se pudo conectar con el acceso de chofer.'); } }} onRegister={async (name, email, password) => { setError(''); const { data: result, error } = await supabase.auth.signUp({ email, password, options: { data: { full_name: name } } }); if (error) setError(error.message); else if (!result.session) setError('Revisa tu correo para confirmar la cuenta y luego ingresa.'); }} />;
   return <>
@@ -106,6 +109,8 @@ function App() {
     {modal && !['quickDeparture','quickReturn','maintenance','vehicle','fuel'].includes(modal.type) && <RecordModal type={modal.type} record={modal.record} data={data} onClose={() => setModal(null)} onSave={(collection, record) => { update(collection,record); setModal(null); }} />}
   </>;
 }
+
+function SplashScreen() { return <section className="splash-screen" aria-label="Bienvenida a RutaControl"><span className="splash-ftp">FTP</span><span className="splash-mango-mark">●</span><p>RUTACONTROL</p><span className="splash-loader"><i/></span></section>; }
 
 function Login({ onLogin, onDriverLogin, error }) {
   const [driverMode, setDriverMode] = useState(true);
