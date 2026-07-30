@@ -6,6 +6,7 @@ create table if not exists public.user_profiles (
   role text not null check (role in ('admin', 'driver')) default 'driver',
   access_code text unique,
   is_active boolean not null default true,
+  permissions jsonb not null default '{"departure": true, "arrival": true, "trips": true, "fuel": false, "maintenance": false}'::jsonb,
   qr_token uuid not null unique default gen_random_uuid(),
   created_at timestamptz not null default now()
 );

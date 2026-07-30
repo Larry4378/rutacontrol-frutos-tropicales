@@ -38,6 +38,12 @@ Deno.serve(async (req) => {
     const { error } = await client.auth.admin.updateUserById(body.id, { password: pin })
     return error ? response({ error: error.message }, 400) : response({ ok: true })
   }
+  if (action === 'delete') {
+    const { data: target } = await client.from('user_profiles').select('id,role').eq('id', body.id).maybeSingle()
+    if (target?.role !== 'driver') return response({ error: 'Solo se pueden eliminar cuentas de chofer.' }, 400)
+    const { error } = await client.auth.admin.deleteUser(body.id)
+    return error ? response({ error: error.message }, 400) : response({ ok: true })
+  }
   if (action === 'renew-qr') {
     const { data: profile, error } = await client.from('user_profiles').update({ qr_token: crypto.randomUUID() }).eq('id', body.id).eq('role', 'driver').select('id,full_name,role,access_code,is_active,qr_token,created_at').single()
     return error ? response({ error: error.message }, 400) : response({ profile })
