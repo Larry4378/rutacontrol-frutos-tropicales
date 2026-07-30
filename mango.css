@@ -21,14 +21,16 @@ body {
 .evidence-preview small { color: var(--muted); }
 
 .login-screen { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 20px; background: linear-gradient(135deg, #123c31d9, #5f8c32d9), radial-gradient(circle at 85% 15%, #ffc94c 0 6%, transparent 6.5%); }
+.login-screen::before { content: 'FTP'; position: absolute; left: 50%; top: 48%; color: #edf7cb; font: 900 clamp(155px, 57vw, 460px)/.7 Outfit, sans-serif; letter-spacing: -.14em; opacity: .12; pointer-events: none; transform: translate(-54%, -50%) rotate(-8deg); animation: ftp-background 4s ease-in-out infinite; }
 .login-screen.hidden { display: none; }
-.login-card { width: min(390px, 100%); padding: 32px; border-radius: 18px; background: #fffffff5; box-shadow: 0 25px 70px #10251c80; display: grid; gap: 10px; }
+.login-card { position: relative; z-index: 1; width: min(390px, 100%); padding: 32px; border-radius: 18px; background: #fffffff5; box-shadow: 0 25px 70px #10251c80; display: grid; gap: 10px; }
 .login-card .primary { margin-top: 8px; }
 .remember-driver { display: flex; align-items: center; gap: 8px; margin-top: 2px; cursor: pointer; }
 .remember-driver input { width: auto; accent-color: var(--teal); }
 .login-card small { color: var(--muted); text-align: center; margin-top: 8px; }
 .login-fruit { width: 48px; height: 48px; border-radius: 45% 55% 50% 50%; display: grid; place-items: center; background: #ffc94c; color: #d49217; font-size: 25px; }
 .login-error { min-height: 18px; color: var(--red); margin: 0; }
+@keyframes ftp-background { 50% { opacity: .18; transform: translate(-54%, -52%) rotate(-6deg) scale(1.035); } }
 .header-actions { display: flex; align-items: center; gap: 10px; }
 .session-name { font-size: 12px; color: var(--muted); }
 .driver-form { margin-top: 17px; }
