@@ -10,6 +10,7 @@
 .quick-departure-modal form:has(input:invalid,select:invalid) .form-actions .primary{pointer-events:none;opacity:.45;box-shadow:none}
 .evidence-quick{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin:12px 0;padding:10px;border:1px solid #dcead3;border-radius:8px;background:#f8fcf3}.evidence-quick b{grid-column:1/-1;font:700 13px Outfit;color:#315e37}.evidence-quick small{font:400 11px "DM Sans";color:#70816d}.evidence-quick input,.evidence-quick select{padding:7px;font-size:11px}.evidence-quick input:last-child{grid-column:1/-1}
 .gps-button{margin-top:7px;border:1px solid #99c76d;border-radius:7px;padding:7px 9px;background:#f3faea;color:#2d6a38;font:700 11px "DM Sans";cursor:pointer}.gps-button:hover{background:#e3f2d4}
+.photo-source{display:flex;flex-wrap:wrap;gap:8px}.photo-source label{position:relative;overflow:hidden;border:1px solid #99c76d;border-radius:7px;padding:8px 10px;background:#f3faea;color:#2d6a38;font:700 11px "DM Sans";cursor:pointer}.photo-source label:hover{background:#e3f2d4}.photo-source input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}
 .field-help,.km-correction{display:none}
 .trip-filters{padding:14px;background:#fffffff2;border:1px solid var(--line);border-radius:11px}
 .trip-filters input,.trip-filters select{width:auto;min-width:150px;flex:1}
