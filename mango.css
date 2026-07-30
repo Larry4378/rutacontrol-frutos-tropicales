@@ -21,12 +21,19 @@ body {
 .evidence-preview small { color: var(--muted); }
 
 .login-screen { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 20px; background: linear-gradient(135deg, #123c31d9, #5f8c32d9), radial-gradient(circle at 85% 15%, #ffc94c 0 6%, transparent 6.5%); }
-.splash-screen { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; align-content: center; gap: 8px; overflow: hidden; background: radial-gradient(circle at 50% 46%, #67a34c 0 8%, transparent 35%), linear-gradient(140deg, #0d3a2d, #1d7045 62%, #80a93e); color: #fff; text-align: center; }
-.splash-ftp { position: absolute; left: 50%; top: 48%; color: #eff8cf; font: 900 clamp(170px, 62vw, 480px)/.7 Outfit, sans-serif; letter-spacing: -.15em; opacity: .16; transform: translate(-54%, -50%) rotate(-8deg); animation: ftp-splash-drift 2.8s ease-in-out infinite; }
-.splash-mango-mark { position: relative; display: grid; place-items: center; width: 82px; height: 96px; border: 5px solid #f7be2c; border-radius: 58% 42% 55% 45%; background: linear-gradient(145deg, #ffe36c, #ffc436 50%, #e58d17); color: #e8991e; font-size: 30px; transform: rotate(-18deg); box-shadow: 0 13px 20px #082f2066; animation: mango-splash-float 1.2s ease-in-out infinite; }
-.splash-screen p { position: relative; margin: 12px 0 0; color: #f4f8dd; font: 700 11px Outfit, sans-serif; letter-spacing: .28em; }
-.splash-loader { position: relative; width: 54px; height: 4px; margin-top: 11px; overflow: hidden; border-radius: 10px; background: #ffffff3a; }
-.splash-loader i { display: block; width: 44%; height: 100%; border-radius: inherit; background: #ffd24c; animation: splash-progress 1s ease-in-out infinite; }
+.splash-screen { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; align-content: center; gap: 7px; overflow: hidden; color: #fff; text-align: center; background: radial-gradient(circle at 52% 42%, #5f9b43 0 12%, transparent 37%), linear-gradient(140deg, #0d3a2d, #1e7447 62%, #88ad3c); }
+.splash-ftp { position: absolute; z-index: 0; left: 50%; top: 48%; color: #f3f8d5; font: 900 clamp(150px, 51vw, 430px)/.7 Outfit, sans-serif; letter-spacing: -.13em; opacity: .11; transform: translate(-54%, -50%) rotate(-8deg); text-shadow: 0 12px 28px #0c442e88; animation: splash-ftp 3.7s ease-in-out infinite; }
+.splash-orbit { position: absolute; border: 24px solid #d6eb8a26; border-radius: 50%; animation: splash-drift 3.6s ease-in-out infinite; }
+.orbit-one { width: 360px; height: 360px; right: -145px; top: -130px; }
+.orbit-two { width: 300px; height: 300px; left: -145px; bottom: -125px; animation-delay: -1.8s; }
+.splash-logo { position: relative; z-index: 2; display: grid; place-items: center; width: 120px; height: 120px; margin-bottom: 10px; filter: drop-shadow(0 15px 16px #062a1f66); animation: splash-float 1.9s ease-in-out infinite; }
+.splash-mango { display: grid; place-items: center; width: 88px; height: 102px; border-radius: 58% 42% 55% 45%; background: linear-gradient(145deg, #ffe371, #ffc336 48%, #e58e16); border: 5px solid #f5b727; color: #e89a1d; font-size: 33px; transform: rotate(-18deg); }
+.splash-leaf { position: absolute; top: 1px; right: 14px; width: 35px; height: 18px; border-radius: 100% 0 100% 0; background: #c4e658; transform: rotate(-26deg); z-index: 1; }
+.splash-company { position: relative; z-index: 2; margin: 0; color: #edf8c9; font: 700 11px/1 Outfit, sans-serif; letter-spacing: .2em; animation: splash-rise .7s ease both .15s; }
+.splash-screen h1 { position: relative; z-index: 2; margin: 2px 0 0; color: #fff; font-size: clamp(35px, 10vw, 48px); letter-spacing: -.04em; animation: splash-rise .7s ease both .27s; }
+.splash-subtitle { position: relative; z-index: 2; margin: 0; color: #e7f0d2; font-size: 14px; animation: splash-rise .7s ease both .39s; }
+.splash-loader { position: relative; z-index: 2; width: 58px; height: 4px; margin-top: 23px; overflow: hidden; border-radius: 9px; background: #ffffff36; }
+.splash-loader i { display: block; width: 45%; height: 100%; border-radius: inherit; background: #ffcd46; animation: splash-load 1.4s ease-in-out infinite; }
 .login-screen::before { content: 'FTP'; position: absolute; left: 50%; top: 48%; color: #edf7cb; font: 900 clamp(155px, 57vw, 460px)/.7 Outfit, sans-serif; letter-spacing: -.14em; opacity: .12; pointer-events: none; transform: translate(-54%, -50%) rotate(-8deg); animation: ftp-background 4s ease-in-out infinite; }
 .login-screen.hidden { display: none; }
 .login-card { position: relative; z-index: 1; width: min(390px, 100%); padding: 32px; border-radius: 18px; background: #fffffff5; box-shadow: 0 25px 70px #10251c80; display: grid; gap: 10px; }
@@ -37,9 +44,11 @@ body {
 .login-fruit { width: 48px; height: 48px; border-radius: 45% 55% 50% 50%; display: grid; place-items: center; background: #ffc94c; color: #d49217; font-size: 25px; }
 .login-error { min-height: 18px; color: var(--red); margin: 0; }
 @keyframes ftp-background { 50% { opacity: .18; transform: translate(-54%, -52%) rotate(-6deg) scale(1.035); } }
-@keyframes ftp-splash-drift { 50% { opacity: .23; transform: translate(-54%, -52%) rotate(-6deg) scale(1.035); } }
-@keyframes mango-splash-float { 50% { transform: translateY(-8px) rotate(-14deg); } }
-@keyframes splash-progress { from { transform: translateX(-120%); } to { transform: translateX(240%); } }
+@keyframes splash-float { 50% { transform: translateY(-10px) rotate(2deg); } }
+@keyframes splash-drift { 50% { transform: scale(1.08) translate(8px, -8px); } }
+@keyframes splash-rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes splash-load { from { transform: translateX(-120%); } to { transform: translateX(240%); } }
+@keyframes splash-ftp { 50% { opacity: .17; transform: translate(-54%, -52%) rotate(-6deg) scale(1.035); } }
 .header-actions { display: flex; align-items: center; gap: 10px; }
 .session-name { font-size: 12px; color: var(--muted); }
 .driver-form { margin-top: 17px; }

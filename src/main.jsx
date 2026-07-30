@@ -34,7 +34,7 @@ function App() {
   const [showSplash, setShowSplash] = useState(true);
 
   useEffect(() => localStorage.setItem('rutacontrol-react', JSON.stringify(data)), [data]);
-  useEffect(() => { const timer = setTimeout(() => setShowSplash(false), 1100); return () => clearTimeout(timer); }, []);
+  useEffect(() => { const timer = setTimeout(() => setShowSplash(false), 1900); return () => clearTimeout(timer); }, []);
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => { setSession(session); setAuthReady(true); });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, nextSession) => setSession(nextSession));
@@ -110,7 +110,7 @@ function App() {
   </>;
 }
 
-function SplashScreen() { return <section className="splash-screen" aria-label="Bienvenida a RutaControl"><span className="splash-ftp">FTP</span><span className="splash-mango-mark">●</span><p>RUTACONTROL</p><span className="splash-loader"><i/></span></section>; }
+function SplashScreen() { return <section className="splash-screen" aria-label="Bienvenida a RutaControl"><span className="splash-ftp" aria-hidden="true">FTP</span><div className="splash-orbit orbit-one"/><div className="splash-orbit orbit-two"/><div className="splash-logo"><span className="splash-leaf"/><span className="splash-mango">●</span></div><p className="splash-company">FRUTOS TROPICALES</p><h1>RutaControl</h1><p className="splash-subtitle">Control vehicular inteligente</p><span className="splash-loader"><i/></span></section>; }
 
 function Login({ onLogin, onDriverLogin, error }) {
   const [driverMode, setDriverMode] = useState(true);
