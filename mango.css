@@ -1,15 +1,3 @@
-/* Motivos de mango discretos, para conservar la lectura de los datos. */
-body {
-  background:
-    radial-gradient(ellipse at 91% 8%, #ffc94c 0 5%, #d49217 5.2% 8%, transparent 8.2%),
-    radial-gradient(ellipse at 96% 3%, #608c36 0 7%, transparent 7.2%),
-    radial-gradient(ellipse at 7% 92%, #ffc94c 0 5%, #d49217 5.2% 8%, transparent 8.2%),
-    radial-gradient(ellipse at 2% 96%, #608c36 0 7%, transparent 7.2%),
-    radial-gradient(circle at 89% 8%, #d5ecbe 0, transparent 25%),
-    radial-gradient(circle at 31% 100%, #e8e5ae 0, transparent 31%),
-    var(--bg);
-}
-
 .delete, .edit { border: 0; background: none; cursor: pointer; }
 .delete { color: #a5afb5; font-size: 17px; }
 .delete:hover { color: var(--red); }
