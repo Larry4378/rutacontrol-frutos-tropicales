@@ -41,12 +41,32 @@ const withOcrTimeout = (promise, milliseconds = 15000) => Promise.race([
   promise,
   new Promise((_, reject) => setTimeout(() => reject(new Error('OCR_TIMEOUT')), milliseconds)),
 ]);
+const preparePlateImage = async file => {
+  if (!window.createImageBitmap) return file;
+  const image = await createImageBitmap(file);
+  try {
+    const cropWidth = Math.round(image.width * 0.34);
+    const cropHeight = Math.round(image.height * 0.24);
+    const cropX = Math.round((image.width - cropWidth) / 2);
+    const cropY = Math.round(image.height * 0.33);
+    const canvas = document.createElement('canvas');
+    canvas.width = 1600;
+    canvas.height = 620;
+    const context = canvas.getContext('2d');
+    context.filter = 'grayscale(1) contrast(2.15) brightness(1.12)';
+    context.drawImage(image, cropX, cropY, cropWidth, cropHeight, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/jpeg', 0.95);
+  } finally {
+    image.close?.();
+  }
+};
 const readPlateWithOcr = async file => {
   let worker;
   try {
+    const plateImage = await withOcrTimeout(preparePlateImage(file), 5000);
     worker = await withOcrTimeout(createWorker('eng'));
-    await withOcrTimeout(worker.setParameters({ tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-' }));
-    const result = await withOcrTimeout(worker.recognize(file));
+    await withOcrTimeout(worker.setParameters({ tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-', tessedit_pageseg_mode: '7' }));
+    const result = await withOcrTimeout(worker.recognize(plateImage));
     return result.data;
   } finally {
     if (worker) await worker.terminate();
