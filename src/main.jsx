@@ -64,8 +64,8 @@ const readPlateWithOcr = async file => {
   let worker;
   try {
     const plateImage = await withOcrTimeout(preparePlateImage(file), 5000);
-    worker = await withOcrTimeout(createWorker('eng'));
-    await withOcrTimeout(worker.setParameters({ tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-', tessedit_pageseg_mode: '7' }));
+    worker = await withOcrTimeout(createWorker('eng', undefined, { langPath: new URL('./tessdata', window.location.href).href }));
+    await withOcrTimeout(worker.setParameters({ tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-' }));
     const result = await withOcrTimeout(worker.recognize(plateImage));
     return result.data;
   } finally {
