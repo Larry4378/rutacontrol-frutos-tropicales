@@ -25,17 +25,20 @@ const plateKey = value => String(value || '').toUpperCase().replace(/[^A-Z0-9]/g
 const isPlateLookalike = (left, right) => ['0O', '1I', '1L', '5S', '2Z', '8B', '6G'].includes([left, right].sort().join(''));
 const findVehicleFromPlateOcr = (text, vehicles) => {
   const scanned = plateKey(text);
-  let best = null;
+  const scoresByVehicle = new Map();
   for (const vehicle of vehicles) {
     const target = plateKey(vehicle.plate);
     if (!target || scanned.length < target.length) continue;
     for (let index = 0; index <= scanned.length - target.length; index += 1) {
       const candidate = scanned.slice(index, index + target.length);
       const score = [...target].reduce((total, character, position) => total + (character === candidate[position] ? 0 : isPlateLookalike(character, candidate[position]) ? 0.25 : 1), 0);
-      if (!best || score < best.score) best = { vehicle, score };
+      const previous = scoresByVehicle.get(vehicle.id);
+      if (!previous || score < previous.score) scoresByVehicle.set(vehicle.id, { vehicle, score });
     }
   }
-  return best && best.score <= 1 ? { ...best, approximate: best.score > 0.25 } : null;
+  const matches = [...scoresByVehicle.values()].sort((left, right) => left.score - right.score);
+  const [best, next] = matches;
+  return best && best.score <= 2 && (!next || next.score - best.score >= 0.5) ? { ...best, approximate: best.score > 0.25 } : null;
 };
 const withOcrTimeout = (promise, milliseconds = 15000) => Promise.race([
   promise,
@@ -53,7 +56,7 @@ const preparePlateImage = async file => {
     canvas.width = 1600;
     canvas.height = 620;
     const context = canvas.getContext('2d');
-    context.filter = 'grayscale(1) contrast(2.15) brightness(1.12)';
+    context.imageSmoothingEnabled = true;
     context.drawImage(image, cropX, cropY, cropWidth, cropHeight, 0, 0, canvas.width, canvas.height);
     return canvas.toDataURL('image/jpeg', 0.95);
   } finally {
