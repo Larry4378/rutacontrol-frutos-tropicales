@@ -75,7 +75,7 @@ const readPlateWithOcr = async file => {
     if (worker) await worker.terminate();
   }
 };
-function PhotoSource({onChange,accept='image/*'}) { return <div className="photo-source"><label>▣ Elegir de galería<input type="file" accept={accept} onChange={onChange}/></label><label>◉ Tomar foto<input type="file" accept={accept} capture="environment" onChange={onChange}/></label></div>; }
+function PhotoSource({onChange,accept='image/*'}) { return <div className="photo-source"><label>▣ Elegir de galería<input type="file" accept={accept} onChange={onChange}/></label></div>; }
 
 function App() {
   const [data, setData] = useState(read);
