@@ -287,7 +287,7 @@ function VehicleModal({ record = {}, onClose, onSave }) {
       <div className="field"><label>Tipo de vehículo</label><select required value={form.vehicle_type || 'Camioneta'} onChange={event => change('vehicle_type', event.target.value)}><option>Moto</option><option>Auto</option><option>Camioneta</option><option>Otro</option></select></div>
       <div className="field"><label>Marca</label><input required value={form.brand || ''} onChange={event => change('brand', event.target.value)} /></div>
       <div className="field"><label>Modelo</label><input required value={form.model || ''} onChange={event => change('model', event.target.value)} /></div>
-      <div className="field"><label>Tipo de propiedad</label><select required value={form.ownership || ''} onChange={event => change('ownership', event.target.value)}><option value="">Seleccionar</option><option value="Propio">Propio de la empresa</option><option value="Alquilado">Alquilado</option></select></div>
+      <div className="field"><label>Tipo de propiedad</label><select required value={form.ownership || ''} onChange={event => change('ownership', event.target.value)}><option value="">Seleccionar</option><option value="Propio">Propio de la empresa</option><option value="Alquilado">ALQUILADO POR EL USUARIO</option></select></div>
       <div className="field"><label>Kilometraje inicial</label><input required type="number" min="0" value={form.km || ''} onChange={event => change('km', event.target.value)} /></div>
       <div className="field"><label>Estado</label><select value={form.status || 'Disponible'} onChange={event => change('status', event.target.value)}><option>Disponible</option><option>En mantenimiento</option><option>Fuera de servicio</option></select></div>
     </div>
