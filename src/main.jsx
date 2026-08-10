@@ -119,7 +119,7 @@ function App() {
       setData(previous => ({ ...previous, [collection]: previous[collection].some(x => x.id === record.id) ? previous[collection].map(x => x.id === record.id ? record : x) : [...previous[collection], { ...record, id: record.id || id() }] }));
       return true;
     }
-    const vehicle = { plate: record.plate.trim().toUpperCase(), brand: record.brand, model: record.model, vehicle_type: record.vehicle_type || 'Camioneta', ownership: record.ownership, current_km: Number(record.km), status: record.status || 'Disponible' };
+    const vehicle = { plate: record.plate.trim().toUpperCase(), brand: record.brand, model: record.model, vehicle_type: record.vehicle_type || 'Camioneta', ownership: record.ownership, current_km: Number(record.km || 0), status: record.status || 'Disponible' };
     // select() devuelve una lista; usar single() generaba un error si Supabase no devolvía una fila.
     const request = record.id ? supabase.from('vehicles').update(vehicle).eq('id', record.id).select() : supabase.from('vehicles').insert(vehicle).select();
     const { data: savedRows, error: saveError } = await request;
@@ -288,7 +288,6 @@ function VehicleModal({ record = {}, onClose, onSave }) {
       <div className="field"><label>Marca</label><input required value={form.brand || ''} onChange={event => change('brand', event.target.value)} /></div>
       <div className="field"><label>Modelo</label><input required value={form.model || ''} onChange={event => change('model', event.target.value)} /></div>
       <div className="field"><label>Tipo de propiedad</label><select required value={form.ownership || ''} onChange={event => change('ownership', event.target.value)}><option value="">Seleccionar</option><option value="Propio">Propio de la empresa</option><option value="Alquilado">Alquilado por el usuario</option></select></div>
-      <div className="field"><label>Kilometraje inicial</label><input required type="number" min="0" value={form.km || ''} onChange={event => change('km', event.target.value)} /></div>
       <div className="field"><label>Estado</label><select value={form.status || 'Disponible'} onChange={event => change('status', event.target.value)}><option>Disponible</option><option>En mantenimiento</option><option>Fuera de servicio</option></select></div>
     </div>
     <div className="form-actions"><button type="button" className="secondary" onClick={onClose}>Cancelar</button><button className="primary">Guardar vehículo</button></div>
