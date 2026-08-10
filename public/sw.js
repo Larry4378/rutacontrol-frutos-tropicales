@@ -1,4 +1,4 @@
-const CACHE_NAME = 'rutacontrol-v21';
+const CACHE_NAME = 'rutacontrol-v22';
 const APP_SHELL = ['./', './index.html'];
 
 self.addEventListener('install', event => {
