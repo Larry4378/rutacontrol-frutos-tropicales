@@ -245,7 +245,56 @@ const vehicleName=(data,vehicleId)=>data.vehicles.find(v=>v.id===vehicleId)?.pla
 const Actions=({onEdit,onDelete})=><><button className="edit" onClick={onEdit}>Editar</button><button className="delete" onClick={onDelete}>×</button></>;
 const VehicleActions=({onEdit,onDelete})=><><button className="edit" onClick={onEdit}>Editar</button><button className="delete" title="Solicita la placa antes de eliminar" onClick={onDelete}>Eliminar…</button></>;
 function Table({heads,children}) { return <div className="panel table-panel"><table><thead><tr>{heads.map(head=><th key={head}>{head}</th>)}</tr></thead><tbody>{children}</tbody></table></div>; }
-function Trips({data,onEdit,onDelete}) { const [filters,setFilters]=useState({search:'',date:'',vehicleId:'',driver:'',status:''}); const filtered=data.trips.filter(t=>{const query=filters.search.trim().toLowerCase();const searchable=[vehicleName(data,t.vehicleId),t.driver,t.origin,t.destination].join(' ').toLowerCase();return (!query||searchable.includes(query))&&(!filters.date||t.departureDate===filters.date)&&(!filters.vehicleId||t.vehicleId===filters.vehicleId)&&(!filters.driver||t.driver===filters.driver)&&(!filters.status||(filters.status==='En ruta'?!t.endKm:!!t.endKm));}); const drivers=[...new Set(data.trips.map(t=>t.driver).filter(Boolean))]; return <><div className="trip-filters"><input aria-label="Buscar recorridos" placeholder="Buscar placa, chofer, origen o destino" value={filters.search} onChange={e=>setFilters({...filters,search:e.target.value})}/><input aria-label="Filtrar por fecha" type="date" value={filters.date} onChange={e=>setFilters({...filters,date:e.target.value})}/><select aria-label="Filtrar por vehículo" value={filters.vehicleId} onChange={e=>setFilters({...filters,vehicleId:e.target.value})}><option value="">Todos los vehículos</option>{data.vehicles.map(v=><option value={v.id} key={v.id}>{v.plate}</option>)}</select><select aria-label="Filtrar por chofer" value={filters.driver} onChange={e=>setFilters({...filters,driver:e.target.value})}><option value="">Todos los choferes</option>{drivers.map(driver=><option key={driver}>{driver}</option>)}</select><select aria-label="Filtrar por estado" value={filters.status} onChange={e=>setFilters({...filters,status:e.target.value})}><option value="">Todos los estados</option><option>En ruta</option><option>Finalizado</option></select></div><Table heads={['Salida','Vehículo','Chofer','Origen → destino','Odómetro','Total','']} >{filtered.slice().reverse().map(t=><tr key={t.id}><td>{date(t.departureDate)}<br/><span>{t.departureTime}</span></td><td>{vehicleName(data,t.vehicleId)}</td><td>{t.driver}</td><td>{t.origin} → {t.destination}</td><td>{t.startKm} → {t.endKm || 'Pendiente'}</td><td>{t.endKm ? `${Number(t.endKm)-Number(t.startKm)} km` : <span className="badge warn">En ruta</span>}</td><td><Actions onEdit={()=>onEdit(t)} onDelete={()=>onDelete(t)}/></td></tr>)}</Table>{filtered.length===0&&<p className="empty-message">No hay recorridos que coincidan con los filtros.</p>}</>; }
+function Trips({data,onEdit,onDelete}) {
+  const [filters,setFilters]=useState({search:'',date:'',vehicleId:'',driver:'',status:''});
+  const [photo,setPhoto]=useState(null);
+  useEffect(()=>()=>{if(photo?.url) URL.revokeObjectURL(photo.url)},[photo?.url]);
+  const filtered=data.trips.filter(t=>{
+    const query=filters.search.trim().toLowerCase();
+    const searchable=[vehicleName(data,t.vehicleId),t.driver,t.origin,t.destination].join(' ').toLowerCase();
+    return (!query||searchable.includes(query))&&(!filters.date||t.departureDate===filters.date)&&(!filters.vehicleId||t.vehicleId===filters.vehicleId)&&(!filters.driver||t.driver===filters.driver)&&(!filters.status||(filters.status==='En ruta'?!t.endKm:!!t.endKm));
+  });
+  const drivers=[...new Set(data.trips.map(t=>t.driver).filter(Boolean))];
+  const showOdometerPhoto=async trip=>{
+    setPhoto({loading:true});
+    const {data:evidence,error:evidenceError}=await supabase.from('evidence').select('storage_path').eq('trip_id',trip.id).eq('stage','departure').order('created_at',{ascending:false}).limit(1).maybeSingle();
+    if(evidenceError||!evidence?.storage_path){
+      setPhoto(null);
+      alert('Este recorrido todavía no tiene una foto de odómetro guardada.');
+      return;
+    }
+    const {data:file,error:downloadError}=await supabase.storage.from('vehicle-evidence').download(evidence.storage_path);
+    if(downloadError||!file){
+      setPhoto(null);
+      alert(`No se pudo abrir la foto del odómetro: ${downloadError?.message || 'archivo no disponible'}`);
+      return;
+    }
+    setPhoto({url:URL.createObjectURL(file),driver:trip.driver,vehicle:vehicleName(data,trip.vehicleId)});
+  };
+  return <>
+    <div className="trip-filters">
+      <input aria-label="Buscar recorridos" placeholder="Buscar placa, chofer, origen o destino" value={filters.search} onChange={e=>setFilters({...filters,search:e.target.value})}/>
+      <input aria-label="Filtrar por fecha" type="date" value={filters.date} onChange={e=>setFilters({...filters,date:e.target.value})}/>
+      <select aria-label="Filtrar por vehículo" value={filters.vehicleId} onChange={e=>setFilters({...filters,vehicleId:e.target.value})}><option value="">Todos los vehículos</option>{data.vehicles.map(v=><option value={v.id} key={v.id}>{v.plate}</option>)}</select>
+      <select aria-label="Filtrar por chofer" value={filters.driver} onChange={e=>setFilters({...filters,driver:e.target.value})}><option value="">Todos los choferes</option>{drivers.map(driver=><option key={driver}>{driver}</option>)}</select>
+      <select aria-label="Filtrar por estado" value={filters.status} onChange={e=>setFilters({...filters,status:e.target.value})}><option value="">Todos los estados</option><option>En ruta</option><option>Finalizado</option></select>
+    </div>
+    <Table heads={['Salida','Vehículo','Chofer','Origen → destino','Odómetro','Total','']}>
+      {filtered.slice().reverse().map(t=><tr key={t.id}>
+        <td>{date(t.departureDate)}<br/><span>{t.departureTime}</span></td>
+        <td>{vehicleName(data,t.vehicleId)}</td>
+        <td><div className="trip-driver-evidence"><span>{t.driver}</span><button type="button" className="text-button" onClick={()=>showOdometerPhoto(t)}>Ver foto</button></div></td>
+        <td>{t.origin} → {t.destination}</td>
+        <td>{t.startKm} → {t.endKm || 'Pendiente'}</td>
+        <td>{t.endKm ? `${Number(t.endKm)-Number(t.startKm)} km` : <span className="badge warn">En ruta</span>}</td>
+        <td><Actions onEdit={()=>onEdit(t)} onDelete={()=>onDelete(t)}/></td>
+      </tr>)}
+    </Table>
+    {filtered.length===0&&<p className="empty-message">No hay recorridos que coincidan con los filtros.</p>}
+    {photo?.loading&&<p className="evidence-loading">Abriendo foto del odómetro…</p>}
+    {photo?.url&&<dialog open className="odometer-photo-dialog" aria-label="Foto del odómetro de salida"><div className="odometer-photo-head"><div><h2>Odómetro de salida</h2><p>{photo.vehicle} · {photo.driver}</p></div><button type="button" className="close" aria-label="Cerrar foto" onClick={()=>setPhoto(null)}>×</button></div><img src={photo.url} alt={`Foto del odómetro de ${photo.vehicle}`}/></dialog>}
+  </>;
+}
 function Maintenance({data,onEdit,onDelete}) { return <Table heads={['Fecha','Vehículo','Servicio','Próxima fecha / km','']} >{data.maintenance.slice().reverse().map(x=><tr key={x.id}><td>{date(x.date)}</td><td>{vehicleName(data,x.vehicleId)}</td><td>{x.type}</td><td>{x.nextDate || '—'} {x.nextKm ? ` / ${x.nextKm} km` : ''}</td><td><Actions onEdit={()=>onEdit(x)} onDelete={()=>onDelete(x)}/></td></tr>)}</Table>; }
 function Fuel({data,onEdit,onDelete}) { return <Table heads={['Fecha','Vehículo','Proveedor','Litros','Costo','Km','']} >{data.fuels.slice().reverse().map(x=><tr key={x.id}><td>{date(x.date)}</td><td>{vehicleName(data,x.vehicleId)}</td><td>{x.provider}</td><td>{x.liters}</td><td>{money(x.cost)}</td><td>{x.km}</td><td><Actions onEdit={()=>onEdit(x)} onDelete={()=>onDelete(x)}/></td></tr>)}</Table>; }
 function Expenses({data,onEdit,onDelete}) { return <Table heads={['Fecha','Vehículo','Tipo','Detalle','Proveedor','Costo','']} >{data.expenses.slice().reverse().map(x=><tr key={x.id}><td>{date(x.date)}</td><td>{vehicleName(data,x.vehicleId)}</td><td>{x.type}</td><td>{x.detail}</td><td>{x.provider}</td><td>{money(x.cost)}</td><td><Actions onEdit={()=>onEdit(x)} onDelete={()=>onDelete(x)}/></td></tr>)}</Table>; }
