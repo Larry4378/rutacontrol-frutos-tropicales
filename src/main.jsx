@@ -291,21 +291,22 @@ function Trips({data,onEdit,onDelete}) {
     return (!query||searchable.includes(query))&&(!filters.date||t.departureDate===filters.date)&&(!filters.vehicleId||t.vehicleId===filters.vehicleId)&&(!filters.driver||t.driver===filters.driver)&&(!filters.status||(filters.status==='En ruta'?!t.endKm:!!t.endKm));
   });
   const drivers=[...new Set(data.trips.map(t=>t.driver).filter(Boolean))];
-  const showOdometerPhoto=async trip=>{
+  const showOdometerPhoto=async (trip,stage)=>{
+    const stageLabel=stage==='return'?'llegada':'salida';
     setPhoto({loading:true});
-    const {data:evidence,error:evidenceError}=await supabase.from('evidence').select('storage_path').eq('trip_id',trip.id).eq('stage','departure').order('created_at',{ascending:false}).limit(1).maybeSingle();
+    const {data:evidence,error:evidenceError}=await supabase.from('evidence').select('storage_path').eq('trip_id',trip.id).eq('stage',stage).order('created_at',{ascending:false}).limit(1).maybeSingle();
     if(evidenceError||!evidence?.storage_path){
       setPhoto(null);
-      alert('Este recorrido todavía no tiene una foto de odómetro guardada.');
+      alert(`Este recorrido todavía no tiene una foto de odómetro de ${stageLabel} guardada.`);
       return;
     }
     const {data:file,error:downloadError}=await supabase.storage.from('vehicle-evidence').download(evidence.storage_path);
     if(downloadError||!file){
       setPhoto(null);
-      alert(`No se pudo abrir la foto del odómetro: ${downloadError?.message || 'archivo no disponible'}`);
+      alert(`No se pudo abrir la foto del odómetro de ${stageLabel}: ${downloadError?.message || 'archivo no disponible'}`);
       return;
     }
-    setPhoto({url:URL.createObjectURL(file),driver:trip.driver,vehicle:vehicleName(data,trip.vehicleId)});
+    setPhoto({url:URL.createObjectURL(file),driver:trip.driver,vehicle:vehicleName(data,trip.vehicleId),stageLabel});
   };
   return <>
     <div className="trip-filters">
@@ -319,7 +320,7 @@ function Trips({data,onEdit,onDelete}) {
       {filtered.slice().reverse().map(t=><tr key={t.id}>
         <td>{date(t.departureDate)}<br/><span>{t.departureTime}</span></td>
         <td>{vehicleName(data,t.vehicleId)}</td>
-        <td><div className="trip-driver-evidence"><span>{t.driver}</span><button type="button" className="text-button" onClick={()=>showOdometerPhoto(t)}>Ver foto</button></div></td>
+        <td><div className="trip-driver-evidence"><span>{t.driver}</span><div className="trip-evidence-actions"><button type="button" className="text-button" onClick={()=>showOdometerPhoto(t,'departure')}>Foto salida</button>{t.endKm&&<button type="button" className="text-button" onClick={()=>showOdometerPhoto(t,'return')}>Foto llegada</button>}</div></div></td>
         <td>{t.origin} → {t.destination}</td>
         <td>{t.startKm} → {t.endKm || 'Pendiente'}</td>
         <td>{t.endKm ? `${Number(t.endKm)-Number(t.startKm)} km` : <span className="badge warn">En ruta</span>}</td>
@@ -328,7 +329,7 @@ function Trips({data,onEdit,onDelete}) {
     </Table>
     {filtered.length===0&&<p className="empty-message">No hay recorridos que coincidan con los filtros.</p>}
     {photo?.loading&&<p className="evidence-loading">Abriendo foto del odómetro…</p>}
-    {photo?.url&&<dialog open className="odometer-photo-dialog" aria-label="Foto del odómetro de salida"><div className="odometer-photo-head"><div><h2>Odómetro de salida</h2><p>{photo.vehicle} · {photo.driver}</p></div><button type="button" className="close" aria-label="Cerrar foto" onClick={()=>setPhoto(null)}>×</button></div><img src={photo.url} alt={`Foto del odómetro de ${photo.vehicle}`}/></dialog>}
+    {photo?.url&&<dialog open className="odometer-photo-dialog" aria-label={`Foto del odómetro de ${photo.stageLabel}`}><div className="odometer-photo-head"><div><h2>Odómetro de {photo.stageLabel}</h2><p>{photo.vehicle} · {photo.driver}</p></div><button type="button" className="close" aria-label="Cerrar foto" onClick={()=>setPhoto(null)}>×</button></div><img src={photo.url} alt={`Foto del odómetro de ${photo.stageLabel}: ${photo.vehicle}`}/></dialog>}
   </>;
 }
 function Maintenance({data,onEdit,onDelete}) { return <Table heads={['Fecha','Vehículo','Servicio','Próxima fecha / km','']} >{data.maintenance.slice().reverse().map(x=><tr key={x.id}><td>{date(x.date)}</td><td>{vehicleName(data,x.vehicleId)}</td><td>{x.type}</td><td>{x.nextDate || '—'} {x.nextKm ? ` / ${x.nextKm} km` : ''}</td><td><Actions onEdit={()=>onEdit(x)} onDelete={()=>onDelete(x)}/></td></tr>)}</Table>; }
@@ -430,14 +431,51 @@ function VehicleModal({ record = {}, onClose, onSave }) {
 const odometerStoragePaths = new WeakMap();
 
 const readOdometerKm = text => {
-  const decimals = [...String(text || '').matchAll(/\b(\d{3,7})[.,](\d{1,2})\b/g)]
+  const raw = String(text || '');
+  const odoReadings = [...raw.matchAll(/\bO(?:DO|D0|0O)(?:METER)?\b[^\d]{0,12}((?:\d[\s.,]*){3,9})/gi)]
+    .map(match => match[1].replace(/\s/g, '').replace(/(\d)[.,](\d{1,2})$/, '$1.$2'))
+    .map(Number)
+    .filter(value => Number.isFinite(value) && value > 0);
+  if (odoReadings.length) return Math.max(...odoReadings);
+  const decimals = [...raw.matchAll(/\b(\d{3,7})[.,](\d{1,2})\b/g)]
     .map(match => Number(`${match[1]}.${match[2]}`))
     .filter(value => Number.isFinite(value) && value > 0);
   if (decimals.length) return Math.max(...decimals);
-  const wholeNumbers = (String(text || '').match(/\b\d{4,7}\b/g) || [])
+  const wholeNumbers = (raw.match(/\b\d{4,7}\b/g) || [])
     .map(Number)
     .filter(value => Number.isFinite(value) && value > 0);
   return wholeNumbers.length ? Math.max(...wholeNumbers) : NaN;
+};
+
+const prepareOdometerImage = async file => {
+  if (!window.createImageBitmap) return null;
+  const image = await createImageBitmap(file);
+  try {
+    const x = Math.round(image.width * 0.08);
+    const y = Math.round(image.height * 0.18);
+    const width = Math.round(image.width * 0.84);
+    const height = Math.round(image.height * 0.62);
+    const canvas = document.createElement('canvas');
+    canvas.width = width * 2;
+    canvas.height = height * 2;
+    const context = canvas.getContext('2d');
+    context.filter = 'grayscale(1) contrast(2.25) brightness(1.1)';
+    context.drawImage(image, x, y, width, height, 0, 0, canvas.width, canvas.height);
+    return await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+  } finally { image.close(); }
+};
+
+const recognizeOdometerKm = async file => {
+  const worker = await createWorker('eng');
+  try {
+    const { data: { text: fullText } } = await worker.recognize(file);
+    let focusedText = '';
+    try {
+      const focusedImage = await prepareOdometerImage(file);
+      if (focusedImage) ({ data: { text: focusedText } } = await worker.recognize(focusedImage));
+    } catch {}
+    return readOdometerKm(`${focusedText}\n${fullText}`);
+  } finally { await worker.terminate(); }
 };
 
 const uploadOdometerPhoto = async (file, stage) => {
@@ -490,10 +528,7 @@ function DepartureGpsRequired({ data, driverName = '', assignedVehicleId = '', a
     change('startPhoto', odometerStoragePaths.get(file) || file.name);
     setStatus('Leyendo el odómetro…');
     try {
-      const worker = await createWorker('eng');
-      const { data: { text } } = await worker.recognize(file);
-      await worker.terminate();
-      const km = readOdometerKm(text);
+      const km = await recognizeOdometerKm(file);
       if (Number.isFinite(km)) {
         change('startKm', String(km));
         setStatus(`Kilometraje detectado: ${km.toLocaleString('es-PE', { maximumFractionDigits: 1 })} km. Verifícalo antes de confirmar.`);
@@ -530,7 +565,7 @@ function ArrivalSimple({ data, onClose, onSave }) {
   const odometer = async file => {
     if (!file) return;
     setPhotoSelected(true); change('endPhoto', odometerStoragePaths.get(file) || file.name); setStatus('Leyendo el odómetro final…');
-    try { const worker = await createWorker('eng'); const { data: { text } } = await worker.recognize(file); await worker.terminate(); const km = readOdometerKm(text); if (Number.isFinite(km)) { change('endKm', String(km)); setStatus(`Kilometraje final detectado: ${km.toLocaleString('es-PE', { maximumFractionDigits: 1 })} km. Verifícalo antes de confirmar.`); } else setStatus('No se pudo leer el odómetro. Escríbelo manualmente.'); } catch { setStatus('No se pudo leer la fotografía. Escríbelo manualmente.'); }
+    try { const km = await recognizeOdometerKm(file); if (Number.isFinite(km)) { change('endKm', String(km)); setStatus(`Kilometraje final detectado: ${km.toLocaleString('es-PE', { maximumFractionDigits: 1 })} km. Verifícalo antes de confirmar.`); } else setStatus('No se pudo leer el odómetro. Escríbelo manualmente.'); } catch { setStatus('No se pudo leer la fotografía. Escríbelo manualmente.'); }
   };
   const submit = event => { event.preventDefault(); if (!trip || !photoSelected || !form.endKm || !form.destination) return alert('Registra GPS de destino, foto del odómetro y kilometraje final.'); if (Number(form.endKm) < Number(trip.startKm)) return alert('El kilometraje final no puede ser menor al de salida.'); onSave({ ...trip, endKm: form.endKm, endPhoto: form.endPhoto, returnDate: form.returnDate, returnTime: form.returnTime, destination: form.destination, status: 'Finalizado' }); };
   return <dialog open className="quick-departure-modal"><form onSubmit={submit}><div className="modal-head"><div><p className="eyebrow">LLEGADA</p><h2>Registrar llegada</h2></div><button type="button" className="close" onClick={onClose}>×</button></div>{active.length === 0 ? <p className="empty-message">No hay una salida pendiente.</p> : <><div className="form-grid"><div className="field full"><label>Vehículo en ruta</label><select required value={form.tripId || ''} onChange={event => change('tripId', event.target.value)}><option value="">Seleccionar vehículo</option>{active.map(item => <option key={item.id} value={item.id}>{vehicleName(data, item.vehicleId)} · {item.driver}</option>)}</select></div><div className="field"><label>Fecha</label><input type="date" value={form.returnDate} readOnly /></div><div className="field"><label>Hora</label><input type="time" step="1" value={form.returnTime} readOnly /></div><div className="field full"><label>Destino real</label><input required value={form.destination || ''} readOnly placeholder="Se obtiene al usar GPS" /><button type="button" className="gps-button" onClick={gps}>⌖ Registrar destino con GPS</button></div><div className="field full"><label>Foto del odómetro final</label><PhotoSource onChange={event => odometer(event.target.files?.[0])} /></div><div className="field full"><label>Kilometraje final</label><input required type="number" min={trip?.startKm || 0} step="0.1" value={form.endKm || ''} onChange={event => change('endKm', event.target.value)} placeholder="Se completa desde la foto; corrige solo si fuera necesario" /></div></div>{status && <p className="ocr-status">{status}</p>}<div className="form-actions"><button type="button" className="secondary" onClick={onClose}>Cancelar</button><button className="primary">Confirmar llegada</button></div></>}</form></dialog>;
