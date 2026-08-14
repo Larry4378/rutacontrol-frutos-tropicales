@@ -525,7 +525,11 @@ function DepartureGpsRequired({ data, driverName = '', driverId = '', assignedVe
   const [photoSelected, setPhotoSelected] = useState(false);
   const assignedVehicle = data.vehicles.find(vehicle => String(vehicle.id) === String(assignedVehicleId));
   const assignedLabel = assignedVehicle ? `${assignedVehicle.plate} · ${assignedVehicle.brand}` : assignedVehicleLabel;
-  const pendingTrip = data.trips.find(trip => !trip.endKm && (driverId ? String(trip.driver || '') === String(driverId) : form.driver && String(trip.driver || '').trim().toLowerCase() === String(form.driver).trim().toLowerCase()));
+  const pendingTrip = data.trips.find(trip => !trip.endKm && (
+    (driverId && String(trip.driver || '') === String(driverId)) ||
+    (!driverId && form.driver && String(trip.driver || '').trim().toLowerCase() === String(form.driver).trim().toLowerCase()) ||
+    (form.vehicleId && String(trip.vehicleId || '') === String(form.vehicleId))
+  ));
   const change = (key, value) => setForm(current => ({ ...current, [key]: value }));
   useEffect(() => { if (driverName) change('driver', driverName); }, [driverName]);
   useEffect(() => { if (assignedVehicleId) change('vehicleId', assignedVehicleId); }, [assignedVehicleId]);
