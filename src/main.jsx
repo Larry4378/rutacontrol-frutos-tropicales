@@ -238,23 +238,30 @@ function Dashboard({ data, permissions, onDeparture, onReturn, onTripUpdate, tri
 function MangoQuickActions({permissions,onDeparture,onReturn}) { return <section className="mango-actions"><div><p className="eyebrow">ACCESO RÁPIDO</p><h2>¿El vehículo sale o llega?</h2><p>Registra el movimiento con un toque.</p></div><div className="mango-buttons">{permissions.departure&&<button className="mango-button departure" onClick={onDeparture}><i className="mango-fruit"/><span>Registrar<br/><b>Salida</b></span></button>}{permissions.arrival&&<button className="mango-button arrival" onClick={onReturn}><i className="mango-fruit"/><span>Registrar<br/><b>Llegada</b></span></button>}</div></section>; }
 function RouteMap({data,onUpdate}) {
   const active=data.trips.find(trip=>!trip.endKm);
-  const mapNode=useRef(null); const map=useRef(null); const line=useRef(null); const marker=useRef(null); const watcher=useRef(null); const record=useRef(active);
+  const mapNode=useRef(null); const map=useRef(null); const line=useRef(null); const marker=useRef(null); const startMarker=useRef(null); const watcher=useRef(null); const record=useRef(active);
   const [tracking,setTracking]=useState(false);
   const [message,setMessage]=useState(active?'GPS activándose para seguir el vehículo.':'No hay un vehículo en ruta. Registra una salida primero.');
   useEffect(()=>{record.current=active;},[active]);
-  useEffect(()=>{if(!mapNode.current||map.current)return;map.current=L.map(mapNode.current).setView([-5.1945,-80.6328],12);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap'}).addTo(map.current);return()=>{map.current?.remove();map.current=null;};},[]);
+  useEffect(()=>{if(!mapNode.current||map.current)return;map.current=L.map(mapNode.current).setView([-5.1945,-80.6328],12);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap',maxZoom:19}).addTo(map.current);return()=>{map.current?.remove();map.current=null;};},[]);
   useEffect(()=>{
     const points=(active?.routePoints||[]).map(point=>[point.lat,point.lng]);
     if(!map.current)return;
     if(line.current){line.current.remove();line.current=null;}
     if(marker.current){marker.current.remove();marker.current=null;}
+    if(startMarker.current){startMarker.current.remove();startMarker.current=null;}
     if(!points.length)return;
-    line.current=L.polyline(points,{color:'#187b52',weight:5}).addTo(map.current);
+    line.current=L.layerGroup([
+      L.polyline(points,{color:'#ffffff',weight:10,opacity:.95}),
+      L.polyline(points,{color:'#1267b3',weight:6,opacity:1}),
+    ]).addTo(map.current);
+    startMarker.current=L.marker(points[0],{icon:L.divIcon({className:'route-start-icon',html:'<span title="Punto de salida">●</span>',iconSize:[24,24],iconAnchor:[12,12]})}).addTo(map.current);
     const last=points.at(-1);
     const vehicle=data.vehicles.find(item=>item.id===active.vehicleId);
     const symbol=String(vehicle?.vehicle_type||'').toLowerCase().includes('moto')?'🏍️':'🚗';
     marker.current=L.marker(last,{icon:L.divIcon({className:'moving-vehicle-icon',html:`<span title="Vehículo en movimiento">${symbol}</span>`,iconSize:[44,44],iconAnchor:[22,22]})}).addTo(map.current);
-    map.current.flyTo(last,Math.max(map.current.getZoom(),16),{animate:true,duration:.7});
+    if(map.current.getZoom()<17)map.current.setView(last,17,{animate:true});
+    else map.current.panTo(last,{animate:true,duration:.6});
+    setTimeout(()=>map.current?.invalidateSize(),80);
   },[active?.routePoints,data.vehicles]);
   useEffect(()=>{
     if(watcher.current){navigator.geolocation.clearWatch(watcher.current);watcher.current=null;}
@@ -273,7 +280,7 @@ function RouteMap({data,onUpdate}) {
     return()=>{if(watcher.current){navigator.geolocation.clearWatch(watcher.current);watcher.current=null;}};
   },[active?.id]);
   const points=active?.routePoints?.length||0;
-  return <section className="route-section"><div className="section-head"><div><h2>Trayecto real en mapa</h2><p>{active?`${vehicleName(data,active.vehicleId)} · ${active.origin} → ${active.destination}`:'Inicia una salida para ver su recorrido.'}</p></div>{tracking&&<span className="tracking-badge">● GPS en vivo</span>}</div><p className="route-note">{message} {points>0&&`Puntos registrados: ${points}.`}</p><div ref={mapNode} className="route-map"/></section>;
+  return <section className="route-section"><div className="section-head"><div><h2>Trayecto real en mapa</h2><p>{active?`${vehicleName(data,active.vehicleId)} · ${active.origin} → ${active.destination||'Destino pendiente'}`:'Inicia una salida para ver su recorrido.'}</p></div>{tracking&&<span className="tracking-badge">● GPS en vivo</span>}</div><p className="route-note">{message} {points>0&&`Puntos registrados: ${points}.`} {points>1&&' Línea azul: recorrido; punto verde: salida.'}</p><div ref={mapNode} className="route-map"/></section>;
 }
 function Metric({label,value,note}) { return <div className="metric"><span className="metric-label">{label}</span><div className="metric-value">{value}</div><small>{note}</small></div>; }
 function List({title,text,onAdd,hideAdd=false,children}) { return <section><div className="section-head"><div><h2>{title}</h2><p>{text}</p></div>{!hideAdd&&<button className="primary" onClick={onAdd}>+ Agregar</button>}</div>{children}</section>; }
@@ -559,16 +566,40 @@ function ArrivalSimple({ data, onClose, onSave }) {
   const [form, setForm] = useState({ returnDate: today(), returnTime: now() });
   const [status, setStatus] = useState('');
   const [photoSelected, setPhotoSelected] = useState(false);
+  const [clock, setClock] = useState(now());
   const trip = active.find(item => item.id === form.tripId);
   const change = (key, value) => setForm(current => ({ ...current, [key]: value }));
-  const gps = () => navigator.geolocation?.getCurrentPosition(position => { change('destination', `GPS: ${position.coords.latitude.toFixed(6)}, ${position.coords.longitude.toFixed(6)}`); setStatus('Destino real GPS registrado.'); }, () => setStatus('Permite la ubicación para registrar el destino.'), { enableHighAccuracy: true });
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const time = now();
+      setClock(time);
+      setForm(current => ({ ...current, returnDate: today(), returnTime: time }));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+  const gps = () => {
+    if (!navigator.geolocation) return setStatus('Este navegador no permite GPS.');
+    setStatus('Obteniendo ubicación y dirección…');
+    navigator.geolocation.getCurrentPosition(async position => {
+      const { latitude, longitude, accuracy } = position.coords;
+      let destination = `GPS: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+      try {
+        const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}`);
+        const place = await response.json();
+        destination = place.display_name || destination;
+      } catch {}
+      change('destination', destination);
+      change('gpsAccuracy', Math.round(accuracy));
+      setStatus('Destino GPS registrado correctamente.');
+    }, () => setStatus('Debes permitir la ubicación GPS para registrar el destino.'), { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+  };
   const odometer = async file => {
     if (!file) return;
     setPhotoSelected(true); change('endPhoto', odometerStoragePaths.get(file) || file.name); setStatus('Leyendo el odómetro final…');
     try { const km = await recognizeOdometerKm(file); if (Number.isFinite(km)) { change('endKm', String(km)); setStatus(`Kilometraje final detectado: ${km.toLocaleString('es-PE', { maximumFractionDigits: 1 })} km. Verifícalo antes de confirmar.`); } else setStatus('No se pudo leer el odómetro. Escríbelo manualmente.'); } catch { setStatus('No se pudo leer la fotografía. Escríbelo manualmente.'); }
   };
-  const submit = event => { event.preventDefault(); if (!trip || !photoSelected || !form.endKm || !form.destination) return alert('Registra GPS de destino, foto del odómetro y kilometraje final.'); if (Number(form.endKm) < Number(trip.startKm)) return alert('El kilometraje final no puede ser menor al de salida.'); onSave({ ...trip, endKm: form.endKm, endPhoto: form.endPhoto, returnDate: form.returnDate, returnTime: form.returnTime, destination: form.destination, status: 'Finalizado' }); };
-  return <dialog open className="quick-departure-modal"><form onSubmit={submit}><div className="modal-head"><div><p className="eyebrow">LLEGADA</p><h2>Registrar llegada</h2></div><button type="button" className="close" onClick={onClose}>×</button></div>{active.length === 0 ? <p className="empty-message">No hay una salida pendiente.</p> : <><div className="form-grid"><div className="field full"><label>Vehículo en ruta</label><select required value={form.tripId || ''} onChange={event => change('tripId', event.target.value)}><option value="">Seleccionar vehículo</option>{active.map(item => <option key={item.id} value={item.id}>{vehicleName(data, item.vehicleId)} · {item.driver}</option>)}</select></div><div className="field"><label>Fecha</label><input type="date" value={form.returnDate} readOnly /></div><div className="field"><label>Hora</label><input type="time" step="1" value={form.returnTime} readOnly /></div><div className="field full"><label>Destino real</label><input required value={form.destination || ''} readOnly placeholder="Se obtiene al usar GPS" /><button type="button" className="gps-button" onClick={gps}>⌖ Registrar destino con GPS</button></div><div className="field full"><label>Foto del odómetro final</label><PhotoSource onChange={event => odometer(event.target.files?.[0])} /></div><div className="field full"><label>Kilometraje final</label><input required type="number" min={trip?.startKm || 0} step="0.1" value={form.endKm || ''} onChange={event => change('endKm', event.target.value)} placeholder="Se completa desde la foto; corrige solo si fuera necesario" /></div></div>{status && <p className="ocr-status">{status}</p>}<div className="form-actions"><button type="button" className="secondary" onClick={onClose}>Cancelar</button><button className="primary">Confirmar llegada</button></div></>}</form></dialog>;
+  const submit = event => { event.preventDefault(); if (!trip || !photoSelected || !form.endKm || !form.destination) return alert('Registra GPS de destino, foto del odómetro y kilometraje final.'); if (Number(form.endKm) < Number(trip.startKm)) return alert('El kilometraje final no puede ser menor al de salida.'); onSave({ ...trip, endKm: form.endKm, endPhoto: form.endPhoto, returnDate: today(), returnTime: now(), destination: form.destination, status: 'Finalizado' }); };
+  return <dialog open className="quick-departure-modal"><form onSubmit={submit}><div className="modal-head"><div><p className="eyebrow">LLEGADA</p><h2>Registrar llegada</h2></div><button type="button" className="close" onClick={onClose}>×</button></div><p className="live-clock">Hora actual: <b>{clock}</b></p>{status && <p className="ocr-status">{status}</p>}{active.length === 0 ? <p className="empty-message">No hay una salida pendiente.</p> : <><div className="form-grid"><div className="field full"><label>Vehículo en ruta</label><select required value={form.tripId || ''} onChange={event => change('tripId', event.target.value)}><option value="">Seleccionar vehículo</option>{active.map(item => <option key={item.id} value={item.id}>{vehicleName(data, item.vehicleId)} · {item.driver}</option>)}</select></div><div className="field full"><label>Fecha</label><input type="date" value={form.returnDate} readOnly /></div><div className="field full"><label>Destino real</label><input required value={form.destination || ''} readOnly placeholder="Activa GPS para obtener la dirección" /><button type="button" className="gps-button" onClick={gps}>⌖ Activar GPS y obtener destino</button></div><div className="field full"><label>Foto del odómetro final</label><PhotoSource onChange={event => odometer(event.target.files?.[0])} /></div><div className="field full"><label>Kilometraje final</label><input required type="number" min={trip?.startKm || 0} step="0.1" value={form.endKm || ''} onChange={event => change('endKm', event.target.value)} placeholder="Se completa desde la foto; corrige solo si fuera necesario" /></div></div><div className="form-actions"><button type="button" className="secondary" onClick={onClose}>Cancelar</button><button className="primary">Confirmar llegada</button></div></>}</form></dialog>;
 }
 
 createRoot(document.getElementById('root')).render(<App />);

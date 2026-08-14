@@ -3,6 +3,7 @@
 .metrics.single-metric{grid-template-columns:minmax(220px,320px)}
 .route-section{margin-top:28px}.route-map{height:480px;border:1px solid var(--line);border-radius:13px;overflow:hidden;box-shadow:0 5px 18px #173e2c16}.route-note{margin:0 0 12px;padding:10px 12px;border-radius:8px;background:#f1f8e9;color:#46653d;font-size:12px}@media(max-width:700px){.route-map{height:390px}}
 .tracking-badge{padding:7px 10px;border-radius:999px;background:#e2f3e7;color:#187b52;font-size:12px;font-weight:700;white-space:nowrap}.moving-vehicle-icon{background:transparent;border:0}.moving-vehicle-icon span{display:grid;place-items:center;width:44px;height:44px;border-radius:50%;background:#fff;box-shadow:0 3px 12px #123c3155;font-size:25px;border:2px solid #187b52}
+.route-start-icon{background:transparent;border:0}.route-start-icon span{display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:#1f9d55;color:white;font-size:17px;border:3px solid white;box-shadow:0 2px 7px #123c3155}
 .evidence-camera{display:inline-flex;align-items:center;justify-content:center;width:max-content;padding:8px 12px;border:1px solid #8bc34a;border-radius:7px;background:#f4fae8;color:#285c35;font-size:12px;font-weight:700;cursor:pointer}.evidence-camera input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}.evidence-selected{grid-column:1/-1;color:#3d763f;font-size:11px;font-weight:700}
 .route-section .section-head button{display:none}
 .modal-open .route-section{visibility:visible}
