@@ -2,6 +2,7 @@
 .dashboard-single{margin-top:20px}
 .metrics.single-metric{grid-template-columns:minmax(220px,320px)}
 .route-section{margin-top:28px}.route-map{height:480px;border:1px solid var(--line);border-radius:13px;overflow:hidden;box-shadow:0 5px 18px #173e2c16}.route-note{margin:0 0 12px;padding:10px 12px;border-radius:8px;background:#f1f8e9;color:#46653d;font-size:12px}@media(max-width:700px){.route-map{height:390px}}
+.tracking-badge{padding:7px 10px;border-radius:999px;background:#e2f3e7;color:#187b52;font-size:12px;font-weight:700;white-space:nowrap}.moving-vehicle-icon{background:transparent;border:0}.moving-vehicle-icon span{display:grid;place-items:center;width:44px;height:44px;border-radius:50%;background:#fff;box-shadow:0 3px 12px #123c3155;font-size:25px;border:2px solid #187b52}
 .route-section .section-head button{display:none}
 .modal-open .route-section{visibility:visible}
 .quick-departure-modal{width:min(620px,calc(100% - 26px))}.plate-capture{display:grid;gap:4px;margin:0 0 14px;padding:13px;border:1px dashed #78aa44;border-radius:10px;background:#f7fbef;cursor:pointer}.plate-capture b{font:700 15px Outfit;color:#275b35}.plate-capture small{font-size:11px;color:#718369}.plate-capture input{margin-top:5px;padding:6px;font-size:11px;background:white}
