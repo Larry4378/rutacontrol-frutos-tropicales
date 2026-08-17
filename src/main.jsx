@@ -589,14 +589,17 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
     setStatus('Obteniendo ubicación y dirección…');
     navigator.geolocation.getCurrentPosition(async position => {
       const { latitude, longitude, accuracy } = position.coords;
-      let destination = `GPS: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+      const coordinates = `GPS: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+      change('destination', coordinates);
+      change('gpsAccuracy', Math.round(accuracy));
+      setStatus('Ubicación GPS registrada. Buscando la dirección…');
+      let destination = coordinates;
       try {
         const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}`);
         const place = await response.json();
         destination = place.display_name || destination;
       } catch {}
       change('destination', destination);
-      change('gpsAccuracy', Math.round(accuracy));
       setStatus('Destino GPS registrado correctamente.');
     }, () => setStatus('Debes permitir la ubicación GPS para registrar el destino.'), { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
   };
