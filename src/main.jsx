@@ -571,6 +571,8 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
   const active = data.trips.filter(trip => !trip.endKm && (driverId ? String(trip.driver || '') === String(driverId) : !driverName || String(trip.driver || '').trim().toLowerCase() === String(driverName).trim().toLowerCase()));
   const [form, setForm] = useState(() => ({ returnDate: today(), returnTime: now(), tripId: active.length === 1 ? active[0].id : '' }));
   const [status, setStatus] = useState('');
+  const [gpsStatus, setGpsStatus] = useState('');
+  const [gpsReady, setGpsReady] = useState(false);
   const [photoSelected, setPhotoSelected] = useState(false);
   const [clock, setClock] = useState(now());
   const trip = active.find(item => item.id === form.tripId);
@@ -585,14 +587,16 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
     return () => clearInterval(timer);
   }, []);
   const gps = () => {
-    if (!navigator.geolocation) return setStatus('Este navegador no permite GPS.');
-    setStatus('Obteniendo ubicación y dirección…');
+    if (!navigator.geolocation) return setGpsStatus('Este navegador no permite GPS.');
+    setGpsReady(false);
+    setGpsStatus('Obteniendo ubicación y dirección…');
     navigator.geolocation.getCurrentPosition(async position => {
       const { latitude, longitude, accuracy } = position.coords;
       const coordinates = `GPS: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
       change('destination', coordinates);
       change('gpsAccuracy', Math.round(accuracy));
-      setStatus('Ubicación GPS registrada. Buscando la dirección…');
+      setGpsReady(true);
+      setGpsStatus('Ubicación GPS registrada. Buscando la dirección…');
       let destination = coordinates;
       try {
         const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}`);
@@ -600,16 +604,17 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
         destination = place.display_name || destination;
       } catch {}
       change('destination', destination);
-      setStatus('Destino GPS registrado correctamente.');
-    }, () => setStatus('Debes permitir la ubicación GPS para registrar el destino.'), { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+      setGpsStatus('Destino GPS registrado correctamente.');
+    }, () => { setGpsReady(false); setGpsStatus('Debes permitir la ubicación GPS para registrar el destino.'); }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
   };
+  useEffect(() => { gps(); }, []);
   const odometer = async file => {
     if (!file) return;
     setPhotoSelected(true); change('endPhoto', odometerStoragePaths.get(file) || file.name); setStatus('Leyendo el odómetro final…');
     try { const km = await recognizeOdometerKm(file); if (Number.isFinite(km)) { change('endKm', String(km)); setStatus(`Kilometraje final detectado: ${km.toLocaleString('es-PE', { maximumFractionDigits: 1 })} km. Verifícalo antes de confirmar.`); } else setStatus('No se pudo leer el odómetro. Escríbelo manualmente.'); } catch { setStatus('No se pudo leer la fotografía. Escríbelo manualmente.'); }
   };
   const submit = event => { event.preventDefault(); if (!trip || !photoSelected || !form.endKm || !form.destination) return alert('Registra GPS de destino, foto del odómetro y kilometraje final.'); if (Number(form.endKm) < Number(trip.startKm)) return alert('El kilometraje final no puede ser menor al de salida.'); onSave({ ...trip, endKm: form.endKm, endPhoto: form.endPhoto, returnDate: today(), returnTime: now(), destination: form.destination, status: 'Finalizado' }); };
-  return <dialog open className="quick-departure-modal"><form onSubmit={submit}><div className="modal-head"><div><p className="eyebrow">LLEGADA</p><h2>Registrar llegada</h2></div><button type="button" className="close" onClick={onClose}>×</button></div><p className="live-clock">Hora actual: <b>{clock}</b></p>{status && <p className="ocr-status">{status}</p>}{active.length === 0 ? <p className="empty-message">No hay una salida pendiente.</p> : <><div className="form-grid"><div className="field full"><label>Vehículo en ruta</label>{active.length === 1 ? <input value={vehicleName(data, active[0].vehicleId)} readOnly /> : <select required value={form.tripId || ''} onChange={event => change('tripId', event.target.value)}><option value="">Seleccionar vehículo</option>{active.map(item => <option key={item.id} value={item.id}>{vehicleName(data, item.vehicleId)} · {item.driver}</option>)}</select>}<small className="field-help">Corresponde al vehículo con el que registraste tu salida.</small></div><div className="field full"><label>Fecha</label><input type="date" value={form.returnDate} readOnly /></div><div className="field full"><label>Destino real</label><input required value={form.destination || ''} readOnly placeholder="Activa GPS para obtener la dirección" /><button type="button" className="gps-button" onClick={gps}>⌖ Activar GPS y obtener destino</button></div><div className="field full"><label>Foto del odómetro final</label><PhotoSource onChange={event => odometer(event.target.files?.[0])} /></div><div className="field full"><label>Kilometraje final</label><input required type="number" min={trip?.startKm || 0} step="0.1" value={form.endKm || ''} onChange={event => change('endKm', event.target.value)} placeholder="Se completa desde la foto; corrige solo si fuera necesario" /></div></div><div className="form-actions"><button type="button" className="secondary" onClick={onClose}>Cancelar</button><button className="primary">Confirmar llegada</button></div></>}</form></dialog>;
+  return <dialog open className="quick-departure-modal"><form onSubmit={submit}><div className="modal-head"><div><p className="eyebrow">LLEGADA</p><h2>Registrar llegada</h2></div><button type="button" className="close" onClick={onClose}>×</button></div><p className="live-clock">Hora actual: <b>{clock}</b></p>{gpsStatus && <p className="ocr-status">{gpsStatus}</p>}{status && <p className="ocr-status">{status}</p>}{active.length === 0 ? <p className="empty-message">No hay una salida pendiente.</p> : <><div className="form-grid"><div className="field full"><label>Vehículo en ruta</label>{active.length === 1 ? <input value={vehicleName(data, active[0].vehicleId)} readOnly /> : <select required value={form.tripId || ''} onChange={event => change('tripId', event.target.value)}><option value="">Seleccionar vehículo</option>{active.map(item => <option key={item.id} value={item.id}>{vehicleName(data, item.vehicleId)} · {item.driver}</option>)}</select>}<small className="field-help">Corresponde al vehículo con el que registraste tu salida.</small></div><div className="field full"><label>Fecha</label><input type="date" value={form.returnDate} readOnly /></div><div className="field full"><label>Destino real</label><input required value={form.destination || ''} readOnly placeholder="Obteniendo GPS…" /><button type="button" className="gps-button" onClick={gps}>⌖ Actualizar destino con GPS</button></div><div className="field full"><label>Foto del odómetro final</label><PhotoSource onChange={event => odometer(event.target.files?.[0])} /></div><div className="field full"><label>Kilometraje final</label><input required type="number" min={trip?.startKm || 0} step="0.1" value={form.endKm || ''} onChange={event => change('endKm', event.target.value)} placeholder="Se completa desde la foto; corrige solo si fuera necesario" /></div></div><div className="form-actions"><button type="button" className="secondary" onClick={onClose}>Cancelar</button><button className="primary" disabled={!trip || !gpsReady || !photoSelected || !form.endKm}>Confirmar llegada</button></div></>}</form></dialog>;
 }
 
 createRoot(document.getElementById('root')).render(<App />);
