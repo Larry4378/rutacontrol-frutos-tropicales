@@ -315,11 +315,12 @@ function Dashboard({ data, permissions, onDeparture, onReturn, onTripUpdate, tri
 function MangoQuickActions({permissions,onDeparture,onReturn}) { return <section className="mango-actions"><div><p className="eyebrow">ACCESO RÁPIDO</p><h2>¿El vehículo sale o llega?</h2><p>Registra el movimiento con un toque.</p></div><div className="mango-buttons">{permissions.departure&&<button className="mango-button departure" onClick={onDeparture}><i className="mango-fruit"/><span>Registrar<br/><b>Salida</b></span></button>}{permissions.arrival&&<button className="mango-button arrival" onClick={onReturn}><i className="mango-fruit"/><span>Registrar<br/><b>Llegada</b></span></button>}</div></section>; }
 function RouteMap({data,onUpdate}) {
   const active=data.trips.find(isTripOpen);
-  const mapNode=useRef(null); const map=useRef(null); const line=useRef(null); const marker=useRef(null); const startMarker=useRef(null); const watcher=useRef(null); const record=useRef(active);
+  const mapNode=useRef(null); const map=useRef(null); const line=useRef(null); const marker=useRef(null); const startMarker=useRef(null); const watcher=useRef(null); const record=useRef(active); const manualMapView=useRef(false); const automaticMapMove=useRef(false);
   const [tracking,setTracking]=useState(false);
   const [message,setMessage]=useState(active?'GPS activándose para seguir el vehículo.':'No hay un vehículo en ruta. Registra una salida primero.');
   useEffect(()=>{record.current=active;},[active]);
-  useEffect(()=>{if(!mapNode.current||map.current)return;map.current=L.map(mapNode.current,{zoomControl:false,attributionControl:false}).setView([-5.1945,-80.6328],11);L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',{attribution:'© OpenStreetMap © CARTO',maxZoom:19}).addTo(map.current);L.control.zoom({position:'bottomright'}).addTo(map.current);L.control.attribution({position:'bottomleft',prefix:'© OpenStreetMap © CARTO'}).addTo(map.current);return()=>{map.current?.remove();map.current=null;};},[]);
+  useEffect(()=>{manualMapView.current=false;},[active?.id]);
+  useEffect(()=>{if(!mapNode.current||map.current)return;map.current=L.map(mapNode.current,{zoomControl:false,attributionControl:false}).setView([-5.1945,-80.6328],11);const markManualView=()=>{if(!automaticMapMove.current)manualMapView.current=true;};map.current.on('dragstart',markManualView);map.current.on('zoomstart',markManualView);L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',{attribution:'© OpenStreetMap © CARTO',maxZoom:19}).addTo(map.current);L.control.zoom({position:'bottomright'}).addTo(map.current);L.control.attribution({position:'bottomleft',prefix:'© OpenStreetMap © CARTO'}).addTo(map.current);return()=>{map.current?.off('dragstart',markManualView);map.current?.off('zoomstart',markManualView);map.current?.remove();map.current=null;};},[]);
   useEffect(()=>{
     const points=(active?.routePoints||[]).map(point=>[point.lat,point.lng]);
     if(!map.current)return;
@@ -336,8 +337,12 @@ function RouteMap({data,onUpdate}) {
     const vehicle=data.vehicles.find(item=>item.id===active.vehicleId);
     const symbol=String(vehicle?.vehicle_type||'').toLowerCase().includes('moto')?'🏍️':'🚗';
     marker.current=L.marker(last,{icon:L.divIcon({className:'moving-vehicle-icon',html:`<span class="vehicle-map-pin" title="Vehículo en movimiento"><i>${symbol}</i></span>`,iconSize:[48,48],iconAnchor:[24,24]})}).addTo(map.current);
-    if(points.length>1) map.current.fitBounds(L.latLngBounds(points),{padding:[70,55],maxZoom:14,animate:true,duration:.6});
-    else map.current.setView(last,14,{animate:true});
+    if(!manualMapView.current){
+      automaticMapMove.current=true;
+      if(points.length>1) map.current.fitBounds(L.latLngBounds(points),{padding:[70,55],maxZoom:14,animate:true,duration:.6});
+      else map.current.setView(last,14,{animate:true});
+      window.setTimeout(()=>{automaticMapMove.current=false;},750);
+    }
     setTimeout(()=>map.current?.invalidateSize(),80);
   },[active?.routePoints,data.vehicles]);
   useEffect(()=>{
@@ -360,9 +365,12 @@ function RouteMap({data,onUpdate}) {
   const focusVehicle = () => {
     const last = record.current?.routePoints?.at(-1);
     if (!last || !map.current) return;
+    manualMapView.current=false;
+    automaticMapMove.current=true;
     map.current.flyTo([last.lat,last.lng], Math.max(map.current.getZoom(), 17), { animate:true, duration:.6 });
+    window.setTimeout(()=>{automaticMapMove.current=false;},750);
   };
-  return <section className={`route-section route-navigation ${active ? 'has-active-trip' : 'no-active-trip'}`}><div className="section-head route-section-title"><div><p className="eyebrow">SEGUIMIENTO</p><h2>{active ? 'Trayecto en tiempo real' : 'Mapa de recorridos'}</h2><p>{active ? `Movilidad ${vehicleName(data,active.vehicleId)} en ruta.` : 'El mapa se ampliará automáticamente cuando inicies una salida.'}</p></div>{tracking&&<span className="tracking-badge">● GPS en vivo</span>}</div><div className="route-map-shell"><div ref={mapNode} className="route-map"/>{active&&<><div className="route-map-status"><span className="route-live-dot"/><div><b>{vehicleName(data,active.vehicleId)}</b><small>{tracking?'Ubicación actualizándose':'Ubicación detenida'}</small></div></div><button type="button" className="map-recenter-button" onClick={focusVehicle} title="Centrar mi vehículo" aria-label="Centrar mi vehículo">⌖</button></>}</div><p className="route-note">{message} {points>1&&' La línea azul muestra el trayecto registrado.'}</p></section>;
+  return <section className={`route-section route-navigation ${active ? 'has-active-trip' : 'no-active-trip'}`}><div className="section-head route-section-title"><div><p className="eyebrow">SEGUIMIENTO</p><h2>{active ? 'Trayecto en tiempo real' : 'Mapa de recorridos'}</h2><p>{active ? `Movilidad ${vehicleName(data,active.vehicleId)} en ruta. Puedes explorar el mapa libremente.` : 'El mapa se ampliará automáticamente cuando inicies una salida.'}</p></div>{tracking&&<span className="tracking-badge">● GPS en vivo</span>}</div><div className="route-map-shell"><div ref={mapNode} className="route-map"/>{active&&<><div className="route-map-status"><span className="route-live-dot"/><div><b>{vehicleName(data,active.vehicleId)}</b><small>{tracking?'Ubicación actualizándose':'Ubicación detenida'}</small></div></div><button type="button" className="map-recenter-button" onClick={focusVehicle} title="Volver a mi vehículo" aria-label="Volver a mi vehículo">⌖</button></>}</div><p className="route-note">{message} {points>1&&' La línea azul muestra el trayecto registrado.'}</p></section>;
 }
 function Metric({label,value,note}) { return <div className="metric"><span className="metric-label">{label}</span><div className="metric-value">{value}</div><small>{note}</small></div>; }
 function List({title,text,onAdd,hideAdd=false,children}) { return <section><div className="section-head"><div><h2>{title}</h2><p>{text}</p></div>{!hideAdd&&<button className="primary" onClick={onAdd}>+ Agregar</button>}</div>{children}</section>; }
