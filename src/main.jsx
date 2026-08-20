@@ -120,12 +120,12 @@ function App() {
     const loadTrips = async () => {
       const { data: trips, error: loadError } = await supabase
         .from('trips')
-        .select('id,vehicle_id,driver_id,departure_at,return_at,origin,destination,start_km,end_km,status,route_points,notes')
+        .select('id,vehicle_id,driver_id,driver_profile_id,departure_at,return_at,origin,destination,start_km,end_km,status,route_points,notes')
         .order('departure_at', { ascending: false });
       if (!active) return;
       if (loadError) return setError(`No se pudieron cargar los recorridos: ${loadError.message}`);
       setData(previous => ({ ...previous, trips: (trips || []).map(trip => ({
-          id: trip.id, vehicleId: trip.vehicle_id, driver: trip.driver_id, departureDate: trip.departure_at?.slice(0, 10), departureTime: trip.departure_at?.slice(11, 19),
+          id: trip.id, vehicleId: trip.vehicle_id, driver: trip.driver_id, driverProfileId: trip.driver_profile_id || trip.driver_id, departureDate: trip.departure_at?.slice(0, 10), departureTime: trip.departure_at?.slice(11, 19),
           returnDate: trip.return_at?.slice(0, 10), returnTime: trip.return_at?.slice(11, 19), origin: trip.origin, destination: trip.destination,
           startKm: trip.start_km, endKm: trip.end_km, status: trip.status, routePoints: trip.route_points || [], notes: trip.notes, _saved: true,
       })) }));
@@ -191,11 +191,10 @@ function App() {
         return true;
       }
       const isArrival = record.endKm !== null && record.endKm !== undefined && record.endKm !== '';
-      // En una llegada se conserva el conductor que inició el recorrido. Esto evita
-      // que un cierre cambie la propiedad del viaje y permite que la política RLS
-      // autorice al mismo chofer a finalizarlo.
-      const tripDriverId = record.driver || user.id;
-      const tripDriverProfileId = record.driverProfileId || tripDriverId;
+      // El nombre visible del conductor nunca se envía a una columna UUID.
+      // Para llegadas se conserva el ID que se registró al iniciar la salida.
+      const tripDriverId = record.driverProfileId || user.id;
+      const tripDriverProfileId = record.driverProfileId || user.id;
       const payload = {
         id: record.id, vehicle_id: record.vehicleId, driver_id: tripDriverId, driver_profile_id: tripDriverProfileId,
         departure_at: `${record.departureDate}T${record.departureTime}`, return_at: isArrival ? `${record.returnDate}T${record.returnTime}` : null,
