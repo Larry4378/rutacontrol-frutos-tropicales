@@ -116,15 +116,31 @@ function App() {
   }, [session]);
   useEffect(() => {
     if (!session) return;
-    supabase.from('trips').select('id,vehicle_id,driver_id,departure_at,return_at,origin,destination,start_km,end_km,status,route_points,notes').order('departure_at', { ascending: false })
-      .then(({ data: trips, error: loadError }) => {
-        if (loadError) return setError(`No se pudieron cargar los recorridos: ${loadError.message}`);
-        setData(previous => ({ ...previous, trips: (trips || []).map(trip => ({
+    let active = true;
+    const loadTrips = async () => {
+      const { data: trips, error: loadError } = await supabase
+        .from('trips')
+        .select('id,vehicle_id,driver_id,departure_at,return_at,origin,destination,start_km,end_km,status,route_points,notes')
+        .order('departure_at', { ascending: false });
+      if (!active) return;
+      if (loadError) return setError(`No se pudieron cargar los recorridos: ${loadError.message}`);
+      setData(previous => ({ ...previous, trips: (trips || []).map(trip => ({
           id: trip.id, vehicleId: trip.vehicle_id, driver: trip.driver_id, departureDate: trip.departure_at?.slice(0, 10), departureTime: trip.departure_at?.slice(11, 19),
           returnDate: trip.return_at?.slice(0, 10), returnTime: trip.return_at?.slice(11, 19), origin: trip.origin, destination: trip.destination,
           startKm: trip.start_km, endKm: trip.end_km, status: trip.status, routePoints: trip.route_points || [], notes: trip.notes, _saved: true,
-        })) }));
-      });
+      })) }));
+    };
+    const refreshWhenReturning = () => {
+      if (document.visibilityState === 'visible') loadTrips();
+    };
+    loadTrips();
+    window.addEventListener('focus', loadTrips);
+    document.addEventListener('visibilitychange', refreshWhenReturning);
+    return () => {
+      active = false;
+      window.removeEventListener('focus', loadTrips);
+      document.removeEventListener('visibilitychange', refreshWhenReturning);
+    };
   }, [session]);
   const loadUsers = async () => {
     if (!session) return;
