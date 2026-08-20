@@ -16,6 +16,14 @@ const id = () => crypto.randomUUID();
 const date = value => value ? new Intl.DateTimeFormat('es-PE', { dateStyle: 'medium' }).format(new Date(`${value}T12:00:00`)) : '—';
 const money = value => `S/ ${Number(value || 0).toFixed(2)}`;
 const currentKm = (data, vehicle) => Math.max(Number(vehicle.km || 0), ...data.trips.filter(t => t.vehicleId === vehicle.id).map(t => Number(t.endKm || t.startKm || 0)));
+const gpsRouteKm = points => (points || []).slice(1).reduce((total, point, index) => {
+  const previous = points[index];
+  const rad = value => value * Math.PI / 180;
+  const lat = rad(point.lat - previous.lat);
+  const lng = rad(point.lng - previous.lng);
+  const a = Math.sin(lat / 2) ** 2 + Math.cos(rad(previous.lat)) * Math.cos(rad(point.lat)) * Math.sin(lng / 2) ** 2;
+  return total + 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}, 0);
 // Un recorrido se considera pendiente solo mientras no tenga kilometraje final
 // ni haya sido confirmado como finalizado en Supabase.
 const isTripOpen = trip => (trip?.endKm === null || trip?.endKm === undefined || trip?.endKm === '') && trip?.status !== 'Finalizado';
@@ -296,7 +304,7 @@ function RouteMap({data,onUpdate}) {
   const [tracking,setTracking]=useState(false);
   const [message,setMessage]=useState(active?'GPS activándose para seguir el vehículo.':'No hay un vehículo en ruta. Registra una salida primero.');
   useEffect(()=>{record.current=active;},[active]);
-  useEffect(()=>{if(!mapNode.current||map.current)return;map.current=L.map(mapNode.current).setView([-5.1945,-80.6328],12);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap',maxZoom:19}).addTo(map.current);return()=>{map.current?.remove();map.current=null;};},[]);
+  useEffect(()=>{if(!mapNode.current||map.current)return;map.current=L.map(mapNode.current,{zoomControl:false,attributionControl:false}).setView([-5.1945,-80.6328],12);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap',maxZoom:19}).addTo(map.current);L.control.zoom({position:'bottomright'}).addTo(map.current);L.control.attribution({position:'bottomleft',prefix:'© OpenStreetMap'}).addTo(map.current);return()=>{map.current?.remove();map.current=null;};},[]);
   useEffect(()=>{
     const points=(active?.routePoints||[]).map(point=>[point.lat,point.lng]);
     if(!map.current)return;
@@ -334,7 +342,13 @@ function RouteMap({data,onUpdate}) {
     return()=>{if(watcher.current){navigator.geolocation.clearWatch(watcher.current);watcher.current=null;}};
   },[active?.id]);
   const points=active?.routePoints?.length||0;
-  return <section className="route-section"><div className="section-head"><div><h2>Trayecto real en mapa</h2><p>{active?`${vehicleName(data,active.vehicleId)} · ${active.origin} → ${active.destination||'Destino pendiente'}`:'Inicia una salida para ver su recorrido.'}</p></div>{tracking&&<span className="tracking-badge">● GPS en vivo</span>}</div><p className="route-note">{message} {points>0&&`Puntos registrados: ${points}.`} {points>1&&' Línea azul: recorrido; punto verde: salida.'}</p><div ref={mapNode} className="route-map"/></section>;
+  const distance = gpsRouteKm(active?.routePoints);
+  const focusVehicle = () => {
+    const last = record.current?.routePoints?.at(-1);
+    if (!last || !map.current) return;
+    map.current.flyTo([last.lat,last.lng], Math.max(map.current.getZoom(), 17), { animate:true, duration:.6 });
+  };
+  return <section className="route-section route-navigation"><div className="section-head route-section-title"><div><p className="eyebrow">SEGUIMIENTO</p><h2>Trayecto en tiempo real</h2><p>{active ? `Movilidad ${vehicleName(data,active.vehicleId)} en ruta.` : 'Inicia una salida para visualizar el recorrido.'}</p></div>{tracking&&<span className="tracking-badge">● GPS en vivo</span>}</div><div className="route-map-shell"><div ref={mapNode} className="route-map"/>{active&&<><div className="route-map-status"><span className="route-live-dot"/><div><b>{vehicleName(data,active.vehicleId)}</b><small>{tracking?'Ubicación actualizándose':'Ubicación detenida'}</small></div></div><button type="button" className="map-recenter-button" onClick={focusVehicle} title="Centrar mi vehículo" aria-label="Centrar mi vehículo">⌖</button><div className="route-trip-sheet"><div className="route-sheet-handle"/><div><span>RECORRIDO GPS</span><b>{distance >= 1 ? `${distance.toFixed(1)} km` : `${Math.round(distance * 1000)} m`}</b></div><p>{points ? `${points} ubicaciones registradas` : 'Esperando la primera ubicación'}</p></div></>}</div><p className="route-note">{message} {points>1&&' La línea azul muestra el trayecto registrado.'}</p></section>;
 }
 function Metric({label,value,note}) { return <div className="metric"><span className="metric-label">{label}</span><div className="metric-value">{value}</div><small>{note}</small></div>; }
 function List({title,text,onAdd,hideAdd=false,children}) { return <section><div className="section-head"><div><h2>{title}</h2><p>{text}</p></div>{!hideAdd&&<button className="primary" onClick={onAdd}>+ Agregar</button>}</div>{children}</section>; }
