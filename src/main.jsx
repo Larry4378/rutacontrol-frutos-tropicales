@@ -16,6 +16,9 @@ const id = () => crypto.randomUUID();
 const date = value => value ? new Intl.DateTimeFormat('es-PE', { dateStyle: 'medium' }).format(new Date(`${value}T12:00:00`)) : '—';
 const money = value => `S/ ${Number(value || 0).toFixed(2)}`;
 const currentKm = (data, vehicle) => Math.max(Number(vehicle.km || 0), ...data.trips.filter(t => t.vehicleId === vehicle.id).map(t => Number(t.endKm || t.startKm || 0)));
+// Un recorrido se considera pendiente solo mientras no tenga kilometraje final
+// ni haya sido confirmado como finalizado en Supabase.
+const isTripOpen = trip => (trip?.endKm === null || trip?.endKm === undefined || trip?.endKm === '') && trip?.status !== 'Finalizado';
 const today = () => { const local = new Date(); local.setMinutes(local.getMinutes() - local.getTimezoneOffset()); return local.toISOString().slice(0, 10); };
 const now = () => new Date().toTimeString().slice(0, 8);
 const receiptInfo = text => { const lines=text.split(/\r?\n/).map(x=>x.trim()).filter(Boolean); const i=lines.findIndex(x=>/(monto\s*final|costo\s*total|importe\s*total|total\s*(a\s*pagar|venta)?)/i.test(x)); const totalLines=i>=0?[lines[i],lines[i+1]||'']:lines; const values=totalLines.join(' ').match(/\d{1,4}[.,]\d{2}\b/g)||[]; const total=Math.max(...values.map(x=>Number(x.replace(',','.'))).filter(x=>x>0)); const provider=lines.find(x=>/(primax|repsol|petroperu|puma|pecsa|full|grifo|estaci[oó]n)/i.test(x))||''; return {total,provider:provider.replace(/^(grifo|estaci[oó]n(?: de servicio)?)\s*[:.-]?\s*/i,'')}; };
@@ -141,20 +144,49 @@ function App() {
     if (collection === 'trips') {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { alert('Debes iniciar sesión para guardar el recorrido.'); return false; }
+      const isArrival = record.endKm !== null && record.endKm !== undefined && record.endKm !== '';
+      // En una llegada se conserva el conductor que inició el recorrido. Esto evita
+      // que un cierre cambie la propiedad del viaje y permite que la política RLS
+      // autorice al mismo chofer a finalizarlo.
+      const tripDriverId = record.driver || user.id;
+      const tripDriverProfileId = record.driverProfileId || tripDriverId;
       const payload = {
-        id: record.id, vehicle_id: record.vehicleId, driver_id: user.id, driver_profile_id: user.id,
-        departure_at: `${record.departureDate}T${record.departureTime}`, return_at: record.endKm ? `${record.returnDate}T${record.returnTime}` : null,
-        origin: record.origin, destination: record.destination || null, start_km: Number(record.startKm), end_km: record.endKm ? Number(record.endKm) : null,
-        status: record.endKm ? 'Finalizado' : 'En ruta', route_points: record.routePoints || [], notes: record.departureNotes || record.notes || null,
+        id: record.id, vehicle_id: record.vehicleId, driver_id: tripDriverId, driver_profile_id: tripDriverProfileId,
+        departure_at: `${record.departureDate}T${record.departureTime}`, return_at: isArrival ? `${record.returnDate}T${record.returnTime}` : null,
+        origin: record.origin, destination: record.destination || null, start_km: Number(record.startKm), end_km: isArrival ? Number(record.endKm) : null,
+        status: isArrival ? 'Finalizado' : 'En ruta', route_points: record.routePoints || [], notes: record.departureNotes || record.notes || null,
       };
       const exists = data.trips.some(trip => trip.id === record.id && trip._saved);
       const request = exists ? supabase.from('trips').update(payload).eq('id', record.id).select().single() : supabase.from('trips').insert(payload).select().single();
       const { data: saved, error: saveError } = await request;
       if (saveError) { alert(`No se pudo guardar el recorrido: ${saveError.message}`); return false; }
-      const savedRecord = { ...record, _saved: true };
+      if (isArrival && (saved.status !== 'Finalizado' || saved.end_km === null)) {
+        alert('Supabase no confirmó el cierre del recorrido. Inténtalo nuevamente.');
+        return false;
+      }
+      // Reflejamos la respuesta confirmada por Supabase, no solo el formulario.
+      // Así la salida pendiente desaparece inmediatamente al guardar la llegada.
+      const savedRecord = {
+        ...record,
+        vehicleId: saved.vehicle_id,
+        driver: saved.driver_id,
+        driverProfileId: saved.driver_profile_id,
+        departureDate: saved.departure_at?.slice(0, 10),
+        departureTime: saved.departure_at?.slice(11, 19),
+        returnDate: saved.return_at?.slice(0, 10),
+        returnTime: saved.return_at?.slice(11, 19),
+        origin: saved.origin,
+        destination: saved.destination,
+        startKm: saved.start_km,
+        endKm: saved.end_km,
+        status: saved.status,
+        routePoints: saved.route_points || [],
+        notes: saved.notes,
+        _saved: true,
+      };
       setData(previous => ({ ...previous, trips: previous.trips.some(trip => trip.id === record.id) ? previous.trips.map(trip => trip.id === record.id ? savedRecord : trip) : [...previous.trips, savedRecord] }));
-      const photoPath = record.endKm ? record.endPhoto : record.startPhoto;
-      const stage = record.endKm ? 'return' : 'departure';
+      const photoPath = isArrival ? record.endPhoto : record.startPhoto;
+      const stage = isArrival ? 'return' : 'departure';
       if (photoPath?.startsWith('odometer/')) {
         const { error: evidenceError } = await supabase.from('evidence').insert({ trip_id: saved.id, vehicle_id: record.vehicleId, created_by: user.id, storage_path: photoPath, media_type: 'image', stage });
         if (evidenceError) console.warn('No se pudo enlazar la evidencia:', evidenceError.message);
@@ -199,7 +231,7 @@ function App() {
     <DriverVehicleAssignment profile={profile} driverPreview={driverPreview} modal={modal}/>
     <aside className="sidebar"><div className="company-name">FRUTOS TROPICALES<br/><span>EXPORT. PERÚ</span></div><div className="brand"><span className="brand-mark">F</span><span>FTP - ODOMETRO</span></div><nav>{nav.map(([key, icon, label]) => <button key={key} className={`nav-link ${view === key ? 'active' : ''}`} onClick={() => { setView(key); setModal(null); }}>{icon}<span>{label}</span></button>)}</nav><div className="sidebar-note">{session.user.email}<br/><small>{driverPreview?'Vista de chofer · Administración conservada':'Sesión segura · Administrador'}</small>{profile?.role==='admin'&&<button className="sidebar-preview" onClick={()=>{setDriverPreview(value=>!value);setView('dashboard');setModal(null);}}>{driverPreview?'↩ Volver a administrador':'◉ Vista de chofer'}</button>}<button className="sidebar-logout" onClick={() => supabase.auth.signOut()}>↪ Salir</button></div></aside>
     <main className={modal ? 'modal-open' : ''}>{error && <p className="sync-error">{error}</p>}<header><div><p className="eyebrow">FRUTOS TROPICALES EXPORT. PERÚ · CONTROL VEHICULAR</p><h1>{title}</h1></div><button className="mobile-logout" onClick={() => supabase.auth.signOut()}>↪ Cerrar sesión</button></header>
-      {view === 'dashboard' && <Dashboard data={data} km={tripsKm} permissions={profile?.role === 'driver' && !driverPreview ? driverPermissions : {departure:true,arrival:true}} driverName={profile?.role === 'driver' ? profile.full_name : ''} onGo={setView} onDeparture={() => setModal({type:'quickDeparture'})} onReturn={() => setModal({type:'quickReturn'})} onTripUpdate={record => update('trips',record)} tripForm={modal?.type === 'quickDeparture' ? <DepartureGpsRequired data={data} driverName={profile?.role === 'driver' ? profile.full_name : ''} driverId={profile?.role === 'driver' && !driverPreview ? profile.id : ''} assignedVehicleId={profile?.role === 'driver' && !driverPreview ? profile.permissions?.assignedVehicleId : ''} assignedVehicleLabel={profile?.role === 'driver' && !driverPreview ? profile.permissions?.assignedVehicleLabel : ''} onClose={() => setModal(null)} onSave={async record => { const saved={...record,...(window.departureEvidence||{}),departureDate:today(),departureTime:now()}; const registered=await update('trips',saved); if(registered)setModal(null); }} /> : modal?.type === 'quickReturn' ? <ArrivalSimple data={data} driverName={profile?.role === 'driver' && !driverPreview ? profile.full_name : ''} driverId={profile?.role === 'driver' && !driverPreview ? profile.id : ''} onClose={() => setModal(null)} onSave={async record => { const registered=await update('trips',{...record,returnDate:today(),returnTime:now()}); if(registered)setModal(null); }} /> : null} />}
+      {view === 'dashboard' && <Dashboard data={data} km={tripsKm} permissions={profile?.role === 'driver' && !driverPreview ? driverPermissions : {departure:true,arrival:true}} driverName={profile?.role === 'driver' ? profile.full_name : ''} onGo={setView} onDeparture={() => setModal({type:'quickDeparture'})} onReturn={() => setModal({type:'quickReturn'})} onTripUpdate={record => update('trips',record)} tripForm={modal?.type === 'quickDeparture' ? <DepartureGpsRequired data={data} driverName={profile?.role === 'driver' ? profile.full_name : ''} driverId={profile?.role === 'driver' && !driverPreview ? profile.id : ''} assignedVehicleId={profile?.role === 'driver' && !driverPreview ? profile.permissions?.assignedVehicleId : ''} assignedVehicleLabel={profile?.role === 'driver' && !driverPreview ? profile.permissions?.assignedVehicleLabel : ''} onClose={() => setModal(null)} onSave={async record => { const saved={...record,...(window.departureEvidence||{}),departureDate:today(),departureTime:now()}; const registered=await update('trips',saved); if(registered)setModal(null); return registered; }} /> : modal?.type === 'quickReturn' ? <ArrivalSimple data={data} driverName={profile?.role === 'driver' && !driverPreview ? profile.full_name : ''} driverId={profile?.role === 'driver' && !driverPreview ? profile.id : ''} onClose={() => setModal(null)} onSave={async record => { const registered=await update('trips',{...record,returnDate:today(),returnTime:now()}); if(registered)setModal(null); return registered; }} /> : null} />}
       {view === 'trips' && <List title="Historial de recorridos" text="Consulta, filtra y edita las salidas y llegadas registradas." hideAdd><Trips data={data} onEdit={record => setModal({type:'trip',record})} onDelete={record => remove('trips',record.id)} /></List>}
       {view === 'maintenance' && <List title="Mantenimiento" text="Afinamiento, aceite, frenos, neumáticos y revisión técnica." onAdd={() => setModal({type:'maintenance'})}><Maintenance data={data} onEdit={record => setModal({type:'maintenance',record})} onDelete={record => remove('maintenance',record.id)} /></List>}
       {view === 'fuel' && <List title="Control de combustible" text="Registra litros, costo, kilometraje y comprobante." onAdd={() => setModal({type:'fuel'})}><Fuel data={data} onEdit={record => setModal({type:'fuel',record})} onDelete={record => remove('fuels',record.id)} /></List>}
@@ -237,7 +269,7 @@ function Login({ onLogin, onDriverLogin, error }) {
 function Dashboard({ data, permissions, onDeparture, onReturn, onTripUpdate, tripForm }) { return <>{(permissions.departure||permissions.arrival)&&<MangoQuickActions permissions={permissions} onDeparture={onDeparture} onReturn={onReturn}/>} {tripForm}<RouteMap data={data} onUpdate={onTripUpdate}/></>; }
 function MangoQuickActions({permissions,onDeparture,onReturn}) { return <section className="mango-actions"><div><p className="eyebrow">ACCESO RÁPIDO</p><h2>¿El vehículo sale o llega?</h2><p>Registra el movimiento con un toque.</p></div><div className="mango-buttons">{permissions.departure&&<button className="mango-button departure" onClick={onDeparture}><i className="mango-fruit"/><span>Registrar<br/><b>Salida</b></span></button>}{permissions.arrival&&<button className="mango-button arrival" onClick={onReturn}><i className="mango-fruit"/><span>Registrar<br/><b>Llegada</b></span></button>}</div></section>; }
 function RouteMap({data,onUpdate}) {
-  const active=data.trips.find(trip=>!trip.endKm);
+  const active=data.trips.find(isTripOpen);
   const mapNode=useRef(null); const map=useRef(null); const line=useRef(null); const marker=useRef(null); const startMarker=useRef(null); const watcher=useRef(null); const record=useRef(active);
   const [tracking,setTracking]=useState(false);
   const [message,setMessage]=useState(active?'GPS activándose para seguir el vehículo.':'No hay un vehículo en ruta. Registra una salida primero.');
@@ -525,7 +557,7 @@ function DepartureGpsRequired({ data, driverName = '', driverId = '', assignedVe
   const [photoSelected, setPhotoSelected] = useState(false);
   const assignedVehicle = data.vehicles.find(vehicle => String(vehicle.id) === String(assignedVehicleId));
   const assignedLabel = assignedVehicle ? `${assignedVehicle.plate} · ${assignedVehicle.brand}` : assignedVehicleLabel;
-  const pendingTrip = data.trips.find(trip => !trip.endKm && (
+  const pendingTrip = data.trips.find(trip => isTripOpen(trip) && (
     (driverId && String(trip.driver || '') === String(driverId)) ||
     (!driverId && form.driver && String(trip.driver || '').trim().toLowerCase() === String(form.driver).trim().toLowerCase()) ||
     (form.vehicleId && String(trip.vehicleId || '') === String(form.vehicleId))
@@ -568,12 +600,13 @@ function DepartureGpsRequired({ data, driverName = '', driverId = '', assignedVe
 }
 
 function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }) {
-  const active = data.trips.filter(trip => !trip.endKm && (driverId ? String(trip.driver || '') === String(driverId) : !driverName || String(trip.driver || '').trim().toLowerCase() === String(driverName).trim().toLowerCase()));
+  const active = data.trips.filter(trip => isTripOpen(trip) && (driverId ? String(trip.driver || '') === String(driverId) : !driverName || String(trip.driver || '').trim().toLowerCase() === String(driverName).trim().toLowerCase()));
   const [form, setForm] = useState(() => ({ returnDate: today(), returnTime: now(), tripId: active.length === 1 ? active[0].id : '' }));
   const [status, setStatus] = useState('');
   const [gpsStatus, setGpsStatus] = useState('');
   const [gpsReady, setGpsReady] = useState(false);
   const [photoSelected, setPhotoSelected] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [clock, setClock] = useState(now());
   const trip = active.find(item => item.id === form.tripId);
   const change = (key, value) => setForm(current => ({ ...current, [key]: value }));
@@ -613,8 +646,19 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
     setPhotoSelected(true); change('endPhoto', odometerStoragePaths.get(file) || file.name); setStatus('Leyendo el odómetro final…');
     try { const km = await recognizeOdometerKm(file); if (Number.isFinite(km)) { change('endKm', String(km)); setStatus(`Kilometraje final detectado: ${km.toLocaleString('es-PE', { maximumFractionDigits: 1 })} km. Verifícalo antes de confirmar.`); } else setStatus('No se pudo leer el odómetro. Escríbelo manualmente.'); } catch { setStatus('No se pudo leer la fotografía. Escríbelo manualmente.'); }
   };
-  const submit = event => { event.preventDefault(); if (!trip || !photoSelected || !form.endKm || !form.destination) return alert('Registra GPS de destino, foto del odómetro y kilometraje final.'); if (Number(form.endKm) < Number(trip.startKm)) return alert('El kilometraje final no puede ser menor al de salida.'); onSave({ ...trip, endKm: form.endKm, endPhoto: form.endPhoto, returnDate: today(), returnTime: now(), destination: form.destination, status: 'Finalizado' }); };
-  return <dialog open className="quick-departure-modal"><form onSubmit={submit}><div className="modal-head"><div><p className="eyebrow">LLEGADA</p><h2>Registrar llegada</h2></div><button type="button" className="close" onClick={onClose}>×</button></div><p className="live-clock">Hora actual: <b>{clock}</b></p>{gpsStatus && <p className="ocr-status">{gpsStatus}</p>}{status && <p className="ocr-status">{status}</p>}{active.length === 0 ? <p className="empty-message">No hay una salida pendiente.</p> : <><div className="form-grid"><div className="field full"><label>Vehículo en ruta</label>{active.length === 1 ? <input value={vehicleName(data, active[0].vehicleId)} readOnly /> : <select required value={form.tripId || ''} onChange={event => change('tripId', event.target.value)}><option value="">Seleccionar vehículo</option>{active.map(item => <option key={item.id} value={item.id}>{vehicleName(data, item.vehicleId)} · {item.driver}</option>)}</select>}<small className="field-help">Corresponde al vehículo con el que registraste tu salida.</small></div><div className="field full"><label>Fecha</label><input type="date" value={form.returnDate} readOnly /></div><div className="field full"><label>Destino real</label><input required value={form.destination || ''} readOnly placeholder="Obteniendo GPS…" /><button type="button" className="gps-button" onClick={gps}>⌖ Actualizar destino con GPS</button></div><div className="field full"><label>Foto del odómetro final</label><PhotoSource onChange={event => odometer(event.target.files?.[0])} /></div><div className="field full"><label>Kilometraje final</label><input required type="number" min={trip?.startKm || 0} step="0.1" value={form.endKm || ''} onChange={event => change('endKm', event.target.value)} placeholder="Se completa desde la foto; corrige solo si fuera necesario" /></div></div><div className="form-actions"><button type="button" className="secondary" onClick={onClose}>Cancelar</button><button className="primary" disabled={!trip || !gpsReady || !photoSelected || !form.endKm}>Confirmar llegada</button></div></>}</form></dialog>;
+  const submit = async event => {
+    event.preventDefault();
+    if (!trip || !photoSelected || !form.endKm || !form.destination) return alert('Registra GPS de destino, foto del odómetro y kilometraje final.');
+    if (Number(form.endKm) < Number(trip.startKm)) return alert('El kilometraje final no puede ser menor al de salida.');
+    setSaving(true);
+    setStatus('Guardando llegada y cerrando el recorrido…');
+    const registered = await onSave({ ...trip, endKm: form.endKm, endPhoto: form.endPhoto, returnDate: today(), returnTime: now(), destination: form.destination, status: 'Finalizado' });
+    if (!registered) {
+      setSaving(false);
+      setStatus('La llegada no se pudo confirmar. Revisa los datos e inténtalo nuevamente.');
+    }
+  };
+  return <dialog open className="quick-departure-modal"><form onSubmit={submit}><div className="modal-head"><div><p className="eyebrow">LLEGADA</p><h2>Registrar llegada</h2></div><button type="button" className="close" onClick={onClose}>×</button></div><p className="live-clock">Hora actual: <b>{clock}</b></p>{gpsStatus && <p className="ocr-status">{gpsStatus}</p>}{status && <p className="ocr-status">{status}</p>}{active.length === 0 ? <p className="empty-message">No hay una salida pendiente.</p> : <><div className="form-grid"><div className="field full"><label>Vehículo en ruta</label>{active.length === 1 ? <input value={vehicleName(data, active[0].vehicleId)} readOnly /> : <select required value={form.tripId || ''} onChange={event => change('tripId', event.target.value)}><option value="">Seleccionar vehículo</option>{active.map(item => <option key={item.id} value={item.id}>{vehicleName(data, item.vehicleId)} · {item.driver}</option>)}</select>}<small className="field-help">Corresponde al vehículo con el que registraste tu salida.</small></div><div className="field full"><label>Fecha</label><input type="date" value={form.returnDate} readOnly /></div><div className="field full"><label>Destino real</label><input required value={form.destination || ''} readOnly placeholder="Obteniendo GPS…" /><button type="button" className="gps-button" onClick={gps}>⌖ Actualizar destino con GPS</button></div><div className="field full"><label>Foto del odómetro final</label><PhotoSource onChange={event => odometer(event.target.files?.[0])} /></div><div className="field full"><label>Kilometraje final</label><input required type="number" min={trip?.startKm || 0} step="0.1" value={form.endKm || ''} onChange={event => change('endKm', event.target.value)} placeholder="Se completa desde la foto; corrige solo si fuera necesario" /></div></div><div className="form-actions"><button type="button" className="secondary" onClick={onClose} disabled={saving}>Cancelar</button><button className="primary" disabled={saving || !trip || !gpsReady || !photoSelected || !form.endKm}>{saving ? 'Guardando llegada…' : 'Confirmar llegada'}</button></div></>}</form></dialog>;
 }
 
 createRoot(document.getElementById('root')).render(<App />);
