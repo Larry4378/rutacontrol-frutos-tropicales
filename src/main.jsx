@@ -304,7 +304,7 @@ function RouteMap({data,onUpdate}) {
   const [tracking,setTracking]=useState(false);
   const [message,setMessage]=useState(active?'GPS activándose para seguir el vehículo.':'No hay un vehículo en ruta. Registra una salida primero.');
   useEffect(()=>{record.current=active;},[active]);
-  useEffect(()=>{if(!mapNode.current||map.current)return;map.current=L.map(mapNode.current,{zoomControl:false,attributionControl:false}).setView([-5.1945,-80.6328],12);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap',maxZoom:19}).addTo(map.current);L.control.zoom({position:'bottomright'}).addTo(map.current);L.control.attribution({position:'bottomleft',prefix:'© OpenStreetMap'}).addTo(map.current);return()=>{map.current?.remove();map.current=null;};},[]);
+  useEffect(()=>{if(!mapNode.current||map.current)return;map.current=L.map(mapNode.current,{zoomControl:false,attributionControl:false}).setView([-5.1945,-80.6328],11);L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',{attribution:'© OpenStreetMap © CARTO',maxZoom:19}).addTo(map.current);L.control.zoom({position:'bottomright'}).addTo(map.current);L.control.attribution({position:'bottomleft',prefix:'© OpenStreetMap © CARTO'}).addTo(map.current);return()=>{map.current?.remove();map.current=null;};},[]);
   useEffect(()=>{
     const points=(active?.routePoints||[]).map(point=>[point.lat,point.lng]);
     if(!map.current)return;
@@ -320,9 +320,9 @@ function RouteMap({data,onUpdate}) {
     const last=points.at(-1);
     const vehicle=data.vehicles.find(item=>item.id===active.vehicleId);
     const symbol=String(vehicle?.vehicle_type||'').toLowerCase().includes('moto')?'🏍️':'🚗';
-    marker.current=L.marker(last,{icon:L.divIcon({className:'moving-vehicle-icon',html:`<span title="Vehículo en movimiento">${symbol}</span>`,iconSize:[44,44],iconAnchor:[22,22]})}).addTo(map.current);
-    if(map.current.getZoom()<17)map.current.setView(last,17,{animate:true});
-    else map.current.panTo(last,{animate:true,duration:.6});
+    marker.current=L.marker(last,{icon:L.divIcon({className:'moving-vehicle-icon',html:`<span class="vehicle-map-pin" title="Vehículo en movimiento"><i>${symbol}</i></span>`,iconSize:[48,48],iconAnchor:[24,24]})}).addTo(map.current);
+    if(points.length>1) map.current.fitBounds(L.latLngBounds(points),{padding:[70,55],maxZoom:14,animate:true,duration:.6});
+    else map.current.setView(last,14,{animate:true});
     setTimeout(()=>map.current?.invalidateSize(),80);
   },[active?.routePoints,data.vehicles]);
   useEffect(()=>{
