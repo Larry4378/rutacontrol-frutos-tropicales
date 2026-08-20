@@ -6,6 +6,9 @@
 .route-start-icon{background:transparent;border:0}.route-start-icon span{display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:#1f9d55;color:white;font-size:17px;border:3px solid white;box-shadow:0 2px 7px #123c3155}
 /* Sin tarjeta inferior: los controles se apoyan directamente sobre el mapa. */
 .route-map .leaflet-control-zoom{margin-bottom:18px}.map-recenter-button{bottom:20px}@media(max-width:700px){.map-recenter-button{bottom:20px}.route-map .leaflet-control-zoom{margin-bottom:18px}}
+/* Sin salida activa, el mapa queda como una vista breve y ordenada. */
+.route-navigation.no-active-trip .route-map-shell{max-width:760px}.route-navigation.no-active-trip .route-map{height:280px}.route-navigation.no-active-trip .leaflet-control-zoom{display:none}.route-navigation.no-active-trip .route-note{max-width:760px}
+@media(max-width:700px){.route-navigation.no-active-trip{margin-top:22px}.route-navigation.no-active-trip .route-section-title{display:block;padding:0 2px}.route-navigation.no-active-trip .route-map-shell{margin:0;border-radius:16px}.route-navigation.no-active-trip .route-map{height:250px;min-height:250px}.route-navigation.no-active-trip .route-note{margin:10px 0 0;padding:10px 12px;border-radius:10px}}
 .evidence-camera{display:inline-flex;align-items:center;justify-content:center;width:max-content;padding:8px 12px;border:1px solid #8bc34a;border-radius:7px;background:#f4fae8;color:#285c35;font-size:12px;font-weight:700;cursor:pointer}.evidence-camera input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}.evidence-selected{grid-column:1/-1;color:#3d763f;font-size:11px;font-weight:700}
 .route-section .section-head button{display:none}
 .modal-open .route-section{visibility:visible}
