@@ -144,6 +144,28 @@ function App() {
     if (collection === 'trips') {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { alert('Debes iniciar sesión para guardar el recorrido.'); return false; }
+      // El GPS en vivo solo puede añadir puntos mientras el viaje siga abierto.
+      // Nunca debe volver a escribir los campos de salida/llegada: de lo
+      // contrario, un punto GPS que llegue unos milisegundos tarde podría
+      // reabrir un recorrido que ya fue finalizado.
+      if (record._routeTracking) {
+        const { data: saved, error: routeError } = await supabase
+          .from('trips')
+          .update({ route_points: record.routePoints || [] })
+          .eq('id', record.id)
+          .is('end_km', null)
+          .select('id,route_points,status,end_km')
+          .maybeSingle();
+        if (routeError) {
+          console.warn('No se pudo guardar el punto GPS:', routeError.message);
+          return false;
+        }
+        // Si no devuelve fila, la llegada se guardó antes que este punto GPS.
+        // Es correcto: no hacemos nada para no reabrir el recorrido.
+        if (!saved) return false;
+        setData(previous => ({ ...previous, trips: previous.trips.map(trip => trip.id === saved.id ? { ...trip, routePoints: saved.route_points || [] } : trip) }));
+        return true;
+      }
       const isArrival = record.endKm !== null && record.endKm !== undefined && record.endKm !== '';
       // En una llegada se conserva el conductor que inició el recorrido. Esto evita
       // que un cierre cambie la propiedad del viaje y permite que la política RLS
@@ -303,11 +325,11 @@ function RouteMap({data,onUpdate}) {
     setTracking(true);setMessage('GPS activo: el ícono se moverá en el mapa mientras esta aplicación permanezca abierta.');
     watcher.current=navigator.geolocation.watchPosition(position=>{
       const previous=record.current;
-      if(!previous||previous.id!==tripId||previous.endKm)return;
+      if(!previous||previous.id!==tripId||!isTripOpen(previous))return;
       const point={lat:position.coords.latitude,lng:position.coords.longitude,at:new Date().toISOString(),accuracy:Math.round(position.coords.accuracy)};
       const next={...previous,routePoints:[...(previous.routePoints||[]),point]};
       record.current=next;
-      onUpdate(next);
+      onUpdate({ ...next, _routeTracking: true });
     },()=>{setTracking(false);setMessage('No se pudo actualizar el GPS. Activa la ubicación precisa y mantén abierta la aplicación.');},{enableHighAccuracy:true,maximumAge:0,timeout:15000});
     return()=>{if(watcher.current){navigator.geolocation.clearWatch(watcher.current);watcher.current=null;}};
   },[active?.id]);
