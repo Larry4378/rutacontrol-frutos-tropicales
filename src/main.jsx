@@ -118,16 +118,26 @@ function App() {
     if (!session) return;
     let active = true;
     const loadTrips = async () => {
+      // El historial no necesita descargar miles de puntos GPS antiguos.
+      // Cargar solo las rutas que siguen abiertas hace que la aplicación
+      // vuelva a estar lista mucho más rápido al regresar desde el celular.
       const { data: trips, error: loadError } = await supabase
         .from('trips')
-        .select('id,vehicle_id,driver_id,driver_profile_id,departure_at,return_at,origin,destination,start_km,end_km,status,route_points,notes')
+        .select('id,vehicle_id,driver_id,driver_profile_id,departure_at,return_at,origin,destination,start_km,end_km,status,notes')
         .order('departure_at', { ascending: false });
       if (!active) return;
       if (loadError) return setError(`No se pudieron cargar los recorridos: ${loadError.message}`);
+      const { data: openRoutes, error: routeLoadError } = await supabase
+        .from('trips')
+        .select('id,route_points')
+        .is('end_km', null);
+      if (!active) return;
+      if (routeLoadError) return setError(`No se pudieron cargar las rutas activas: ${routeLoadError.message}`);
+      const routesByTrip = new Map((openRoutes || []).map(trip => [trip.id, trip.route_points || []]));
       setData(previous => ({ ...previous, trips: (trips || []).map(trip => ({
           id: trip.id, vehicleId: trip.vehicle_id, driver: trip.driver_id, driverProfileId: trip.driver_profile_id || trip.driver_id, departureDate: trip.departure_at?.slice(0, 10), departureTime: trip.departure_at?.slice(11, 19),
           returnDate: trip.return_at?.slice(0, 10), returnTime: trip.return_at?.slice(11, 19), origin: trip.origin, destination: trip.destination,
-          startKm: trip.start_km, endKm: trip.end_km, status: trip.status, routePoints: trip.route_points || [], notes: trip.notes, _saved: true,
+          startKm: trip.start_km, endKm: trip.end_km, status: trip.status, routePoints: routesByTrip.get(trip.id) || [], notes: trip.notes, _saved: true,
       })) }));
     };
     const refreshWhenReturning = () => {
@@ -317,9 +327,22 @@ function RouteMap({data,onUpdate}) {
   const active=data.trips.find(isTripOpen);
   const mapNode=useRef(null); const map=useRef(null); const line=useRef(null); const marker=useRef(null); const startMarker=useRef(null); const watcher=useRef(null); const record=useRef(active); const manualMapView=useRef(false); const automaticMapMove=useRef(false);
   const [tracking,setTracking]=useState(false);
+  const [resumeCycle,setResumeCycle]=useState(0);
   const [message,setMessage]=useState(active?'GPS activándose para seguir el vehículo.':'No hay un vehículo en ruta. Registra una salida primero.');
   useEffect(()=>{record.current=active;},[active]);
   useEffect(()=>{manualMapView.current=false;},[active?.id]);
+  useEffect(()=>{
+    const restartGpsWhenReturning=()=>{
+      if(document.visibilityState !== 'visible') return;
+      setResumeCycle(previous=>previous+1);
+    };
+    document.addEventListener('visibilitychange',restartGpsWhenReturning);
+    window.addEventListener('focus',restartGpsWhenReturning);
+    return()=>{
+      document.removeEventListener('visibilitychange',restartGpsWhenReturning);
+      window.removeEventListener('focus',restartGpsWhenReturning);
+    };
+  },[]);
   useEffect(()=>{if(!mapNode.current||map.current)return;map.current=L.map(mapNode.current,{zoomControl:false,attributionControl:false}).setView([-5.1945,-80.6328],11);const markManualView=()=>{if(!automaticMapMove.current)manualMapView.current=true;};map.current.on('dragstart',markManualView);map.current.on('zoomstart',markManualView);L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',{attribution:'© OpenStreetMap © CARTO',maxZoom:19}).addTo(map.current);L.control.zoom({position:'bottomright'}).addTo(map.current);L.control.attribution({position:'bottomleft',prefix:'© OpenStreetMap © CARTO'}).addTo(map.current);return()=>{map.current?.off('dragstart',markManualView);map.current?.off('zoomstart',markManualView);map.current?.remove();map.current=null;};},[]);
   useEffect(()=>{
     const points=(active?.routePoints||[]).map(point=>[point.lat,point.lng]);
@@ -360,7 +383,7 @@ function RouteMap({data,onUpdate}) {
       onUpdate({ ...next, _routeTracking: true });
     },()=>{setTracking(false);setMessage('No se pudo actualizar el GPS. Activa la ubicación precisa y mantén abierta la aplicación.');},{enableHighAccuracy:true,maximumAge:0,timeout:15000});
     return()=>{if(watcher.current){navigator.geolocation.clearWatch(watcher.current);watcher.current=null;}};
-  },[active?.id]);
+  },[active?.id,resumeCycle]);
   const points=active?.routePoints?.length||0;
   const focusVehicle = () => {
     const last = record.current?.routePoints?.at(-1);
