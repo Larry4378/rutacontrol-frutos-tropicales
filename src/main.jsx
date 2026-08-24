@@ -64,6 +64,15 @@ const receiptQuantity = value => {
   const separators = raw.match(/[.,]/g) || [];
   return Number(separators.length === 1 ? raw.replace(',', '.') : raw.replace(/[.,]/g, ''));
 };
+const completePeruvianRuc = value => {
+  const digits = String(value || '').replace(/\D/g, '');
+  if (digits.length === 11) return digits;
+  if (digits.length !== 10) return '';
+  const weights = [5, 4, 3, 2, 7, 6, 5, 4, 3, 2];
+  const remainder = digits.split('').reduce((sum, digit, index) => sum + Number(digit) * weights[index], 0) % 11;
+  const verifier = 11 - remainder;
+  return `${digits}${verifier === 10 ? 0 : verifier === 11 ? 1 : verifier}`;
+};
 const receiptInfo = text => {
   const lines = text.split(/\r?\n/).map(line => line.trim().replace(/\s+/g, ' ')).filter(Boolean);
   const allText = lines.join(' ');
@@ -80,7 +89,7 @@ const receiptInfo = text => {
   const total = totals.length ? Math.max(...totals) : NaN;
   const company = findLine(/(coesti|primax|repsol|petroperu|puma|pecsa|full|elizabeth|huertas|corporaci[oó]n|abastecedor|grifo|estaci[oó]n)/i);
   const station = findLine(/\b(e\/?s|eess|estaci[oó]n de servicio|grifo)\b/i);
-  const provider = [company, station !== company ? station : ''].filter(Boolean).join(' · ').replace(/^(grifo|estaci[oó]n(?: de servicio)?)\s*[:.-]?\s*/i, '');
+  const provider = [company.replace(/\s*[-–]?\s*r\.?u\.?c\.?\s*[:+]?\s*\d{8,11}.*/i, ''), station !== company ? station : ''].filter(Boolean).join(' · ').replace(/^(grifo|estaci[oó]n(?: de servicio)?)\s*[:.-]?\s*/i, '');
   const productLine = findLine(/(g-?premium|max-?d|diesel|gasohol|gasolina|biodiesel|gnv|glp)/i);
   const product = productLine.match(/(?:g-?premium|max-?d\s+diesel(?:\s+b\d+)?(?:\s+s\d+)?(?:\s+uv)?|gasohol(?:\s+(?:regular|premium|super))?|gasolina(?:\s+\w+)?|diesel(?:\s+\w+)?|biodiesel|gnv|glp)/i)?.[0] || productLine;
   const gallonLine = findLine(/\b(gal(?:ones)?|gals?|gll|ugl|gl)\b/i);
@@ -89,14 +98,19 @@ const receiptInfo = text => {
   const productNumbers = productLine.match(/\d{1,4}(?:[.,]\d{1,3})?/g) || [];
   // Sin unidad visible solo confiamos en una cantidad decimal: evita convertir 1.168 mal leído en 168 galones.
   const productQuantity = productNumbers.find(value => /[.,]/.test(value) && receiptQuantity(value) > 0 && receiptQuantity(value) < 100) || '';
-  const gallons = receiptQuantity(gallonsAfterUnit || gallonsBeforeUnit || productQuantity);
+  // Algunos tickets muestran «12.500 GLL» y otros «GLL 14.641».
+  // Se descartan números de tarjeta, vale o lote que suelen quedar junto a la unidad.
+  const gallons = [gallonsBeforeUnit, gallonsAfterUnit, productQuantity]
+    .map(receiptQuantity)
+    .find(value => Number.isFinite(value) && value > 0 && value < 1000);
   const price = receiptNumber(productNumbers.length >= 3 && productNumbers.some(value => /[.,]/.test(value)) ? productNumbers.at(-2) : '');
-  const odometerLine = findLine(/(kilo(?:metraje|netraje)|od[oó]metro|\bodo\b|\bkm\s*:)/i);
+  const odometerLine = findLine(/(kilo[a-z]{0,12}|od[oó]metro|\bodo\b|\bkm\s*:)/i);
   const odometer = receiptNumber(odometerLine.match(/[\d.,]{3,}/)?.[0]);
   const documentType = findLine(/\b(factura(?: de venta)?|boleta|nota de despacho|ticket|vale)\b/i);
-  const numberLine = findLine(/(?:n[°ºo]?|nro|numero|número)\s*[:.-]?\s*[a-z0-9]/i);
+  const numberLine = findLine(/\b(?:n(?:[e°ºo]|ro|[úu]mero|umero)?)\s*[:.-]\s*[a-z0-9]/i);
   const documentNumber = lines.join(' ').match(/\b([A-Z]{1,4}\d{1,5}\s*-\s*\d{5,})\b/i)?.[1]?.replace(/\s/g, '')
-    || numberLine.match(/([A-Z]{0,4}\d{1,5}\s*-?\s*\d{5,})/i)?.[1]?.replace(/\s/g, '') || '';
+    || numberLine.match(/([A-Z]{0,4}\d{1,5}\s*-?\s*\d{5,})/i)?.[1]?.replace(/\s/g, '')
+    || numberLine.match(/\b\d{6,}\b/)?.[0] || '';
   const issuedAt = allText.match(/\b\d{2}[\/-]\d{2}[\/-]\d{2,4}\s+(?:hora\s*)?\d{1,2}:\d{2}(?::\d{2})?\b/i)?.[0]
     || allText.match(/\b\d{1,2}\s+de\s+(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\s+de\s+\d{4}(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?\b/i)?.[0]
     || allText.match(/\b\d{1,2}\s+de\s+\S+\s+de\s+\d{4}(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?\b/i)?.[0] || '';
@@ -105,7 +119,8 @@ const receiptInfo = text => {
   const writtenDate = issuedAt.match(/(\d{1,2})\s+de\s+([a-záéíóú]+)\s+de\s+(\d{4})/i);
   const documentDate = numericDate ? `${numericDate[3]}-${numericDate[2]}-${numericDate[1]}` : writtenDate && monthNames[writtenDate[2].toLowerCase()] ? `${writtenDate[3]}-${monthNames[writtenDate[2].toLowerCase()]}-${writtenDate[1].padStart(2, '0')}` : '';
   const rucLine = findLine(/\br\.?u\.?c\.?\b/i);
-  const ruc = rucLine.match(/\b\d{11}\b/)?.[0] || '';
+  const rucRead = rucLine.match(/\b\d{10,11}\b/)?.[0] || '';
+  const ruc = completePeruvianRuc(rucRead);
   const plateLine = findLine(/\bplaca\b/i);
   const plate = plateLine.match(/placa\s*:?\s*([A-Z0-9-]{5,12})/i)?.[1] || '';
   const driverLine = findLine(/\b(chofer|conductor)\b/i);
@@ -119,12 +134,12 @@ const receiptInfo = text => {
   const shiftLine = findLine(/(?:turno|cara|cajero)/i);
   const sideLine = findLine(/(?:lado|isla)\s*:/i);
   const terminalLine = findLine(/\bterminal\b/i);
-  const details = [
+  const standardDetails = [
     ['receiptDocumentType', 'Tipo de comprobante', documentType],
     ['receiptNumber', 'Número de comprobante / vale', documentNumber],
-    ['receiptIssuedAt', 'Fecha y hora de emisión', issuedAt],
+    ['receiptIssuedAt', documentDate ? 'Fecha y hora de emisión' : 'Fecha y hora de emisión (revisar)', issuedAt],
     ['receiptSite', 'Sede de abastecimiento', site],
-    ['receiptRuc', 'RUC del proveedor', ruc],
+    ['receiptRuc', rucRead.length === 10 ? 'RUC del proveedor (completado)' : 'RUC del proveedor', ruc],
     ['receiptPlate', 'Placa indicada', plate],
     ['receiptDriver', 'Chofer indicado', driver],
     ['cardNumber', 'Número de tarjeta', cardNumber],
@@ -136,6 +151,18 @@ const receiptInfo = text => {
     ['receiptSide', 'Lado / isla', sideLine],
     ['receiptTerminal', 'Terminal', terminalLine]
   ].filter(([, , value]) => value).map(([key, label, value]) => ({ key, label, value }));
+  const standardLabels = /^(?:tipo|n[úu]mero|fecha|sede|ruc|placa|chofer|n[úu]mero de tarjeta|precio|raz[oó]n|direcci[oó]n|forma de pago|turno|lado|terminal)/i;
+  const additionalDetails = lines.reduce((items, line) => {
+    const match = line.match(/^([a-záéíóúñ][a-záéíóúñ0-9 .\/-]{1,38})\s*[:=]\s*(.{1,90})$/i);
+    if (!match) return items;
+    const label = match[1].replace(/\s+/g, ' ').trim();
+    const value = match[2].trim();
+    if (!value || standardLabels.test(label) || /^(?:n[°ºo]?|nro|numero|número|ne|raz\.?\s*(?:soc|suc)\.?|direcc|tar\s*jeta|kilo[a-z]*|placa|ruc|total|importe|monto|cantidad|producto|coesti.*ruc)$/i.test(label)) return items;
+    const safeKey = `receiptExtra_${label.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '_')}`;
+    if (!items.some(detail => detail.key === safeKey)) items.push({ key: safeKey, label, value });
+    return items;
+  }, []);
+  const details = [...standardDetails, ...additionalDetails];
   return { total, provider, product, gallons, odometer, plate, documentDate, details, hasUsefulData: Boolean(provider || product || Number.isFinite(gallons) || Number.isFinite(odometer) || Number.isFinite(total) || details.length) };
 };
 
@@ -158,15 +185,18 @@ const mergeReceiptInfo = readings => {
   return { provider, product, plate, gallons, odometer, total, documentDate, details: [...details.values()], hasUsefulData: Boolean(provider || product || plate || Number.isFinite(gallons) || Number.isFinite(odometer) || Number.isFinite(total) || details.size) };
 };
 
-const prepareReceiptImage = async file => {
+const prepareReceiptImage = async (file, mode = 'wide') => {
   if (!window.createImageBitmap) return file;
   const image = await createImageBitmap(file);
   try {
-    const sourceX = Math.round(image.width * 0.08);
-    const sourceY = Math.round(image.height * 0.06);
-    const sourceWidth = Math.round(image.width * 0.84);
-    const sourceHeight = Math.round(image.height * 0.90);
-    const scale = Math.min(2.4, 2200 / sourceWidth);
+    const crop = mode === 'focus'
+      ? { x: 0.14, y: 0.10, width: 0.72, height: 0.86 }
+      : { x: 0.08, y: 0.06, width: 0.84, height: 0.90 };
+    const sourceX = Math.round(image.width * crop.x);
+    const sourceY = Math.round(image.height * crop.y);
+    const sourceWidth = Math.round(image.width * crop.width);
+    const sourceHeight = Math.round(image.height * crop.height);
+    const scale = Math.min(3, 2200 / sourceWidth);
     const canvas = document.createElement('canvas');
     canvas.width = Math.round(sourceWidth * scale);
     canvas.height = Math.round(sourceHeight * scale);
@@ -182,12 +212,15 @@ const prepareReceiptImage = async file => {
 };
 
 const readReceiptWithOcr = async file => {
-  const enhanced = await prepareReceiptImage(file).catch(() => file);
+  const enhanced = await prepareReceiptImage(file, 'wide').catch(() => file);
+  const focused = await prepareReceiptImage(file, 'focus').catch(() => file);
   const worker = await createWorker('eng');
   try {
     const original = await worker.recognize(file);
     const improved = enhanced === file ? { data: { text: '' } } : await worker.recognize(enhanced);
-    return [original.data.text, improved.data.text].filter(Boolean);
+    await worker.setParameters({ tessedit_pageseg_mode: '11' });
+    const focusedResult = focused === file ? { data: { text: '' } } : await worker.recognize(focused);
+    return [original.data.text, improved.data.text, focusedResult.data.text].filter(Boolean);
   } finally {
     await worker.terminate();
   }
@@ -880,8 +913,12 @@ function FuelModalReceipt({ record = {}, data, assignedVehicleId = '', onClose, 
       change('documentDetails', details);
       details.forEach(detail => change(detail.key, detail.value));
       if (matchedVehicle) change('vehicleId', matchedVehicle.id);
+      const pendingFields = [
+        !Number.isFinite(info.gallons) && 'galones',
+        !Number.isFinite(info.total) && 'monto total',
+      ].filter(Boolean);
       setStatus(info.hasUsefulData
-        ? `Comprobante leído. Se identificaron ${info.details.length} datos adicionales; revisa antes de guardar.`
+        ? `Comprobante leído. Se identificaron ${info.details.length} datos adicionales; revisa antes de guardar.${pendingFields.length ? ` No se pudo confirmar: ${pendingFields.join(' y ')}.` : ''}`
         : 'No se pudo reconocer el comprobante. Completa los campos manualmente.');
     } catch {
       setStatus('No se pudo leer el comprobante. Completa los datos manualmente.');
