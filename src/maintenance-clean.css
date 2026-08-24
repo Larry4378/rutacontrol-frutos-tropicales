@@ -1,1 +1,4 @@
 .maintenance-grid-form .field.full{display:none}
+
+/* El vehículo ya se completa por la asignación del chofer. */
+.photo-capture .photo-card:first-child{display:none}
