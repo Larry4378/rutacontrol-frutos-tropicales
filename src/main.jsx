@@ -49,7 +49,33 @@ const shouldKeepGpsPoint = (previous, point) => {
 const isTripOpen = trip => (trip?.endKm === null || trip?.endKm === undefined || trip?.endKm === '') && trip?.status !== 'Finalizado';
 const today = () => { const local = new Date(); local.setMinutes(local.getMinutes() - local.getTimezoneOffset()); return local.toISOString().slice(0, 10); };
 const now = () => new Date().toTimeString().slice(0, 8);
-const receiptInfo = text => { const lines=text.split(/\r?\n/).map(x=>x.trim()).filter(Boolean); const i=lines.findIndex(x=>/(monto\s*final|costo\s*total|importe\s*total|total\s*(a\s*pagar|venta)?)/i.test(x)); const totalLines=i>=0?[lines[i],lines[i+1]||'']:lines; const values=totalLines.join(' ').match(/\d{1,4}[.,]\d{2}\b/g)||[]; const total=Math.max(...values.map(x=>Number(x.replace(',','.'))).filter(x=>x>0)); const provider=lines.find(x=>/(primax|repsol|petroperu|puma|pecsa|full|grifo|estaci[oó]n)/i.test(x))||''; return {total,provider:provider.replace(/^(grifo|estaci[oó]n(?: de servicio)?)\s*[:.-]?\s*/i,'')}; };
+const receiptNumber = value => {
+  const raw = String(value || '').replace(/[^\d.,]/g, '');
+  if (!raw) return NaN;
+  const separators = raw.match(/[.,]/g) || [];
+  if (!separators.length) return Number(raw);
+  const lastSeparator = Math.max(raw.lastIndexOf('.'), raw.lastIndexOf(','));
+  const decimals = raw.length - lastSeparator - 1;
+  return Number(separators.length === 1 && decimals <= 2 ? raw.replace(',', '.') : raw.replace(/[.,]/g, ''));
+};
+const receiptInfo = text => {
+  const lines = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  const totalIndex = lines.findIndex(line => /(monto\s*final|costo\s*total|importe\s*total|total\s*(a\s*pagar|venta)?)/i.test(line));
+  const totalCandidates = (totalIndex >= 0 ? lines.slice(totalIndex, totalIndex + 3) : lines).join(' ').match(/\d{1,5}[.,]\d{2}\b/g) || [];
+  const totals = totalCandidates.map(value => Number(value.replace(',', '.'))).filter(value => value > 0);
+  const total = totals.length ? Math.max(...totals) : NaN;
+  const company = lines.find(line => /(coesti|primax|repsol|petroperu|puma|pecsa|full|grifo|estaci[oó]n)/i.test(line)) || '';
+  const station = lines.find(line => /\b(e\/?s|estaci[oó]n|grifo)\b/i.test(line) && line !== company) || '';
+  const provider = [company, station].filter(Boolean).join(' · ').replace(/^(grifo|estaci[oó]n(?: de servicio)?)\s*[:.-]?\s*/i, '');
+  const product = lines.find(line => /(diesel|gasohol|gasolina|biodiesel|gnv|glp)/i.test(line)) || '';
+  const gallonLine = lines.find(line => /\b(gal(?:ones)?|gals?|ugl|gl)\b/i.test(line)) || '';
+  const gallonsAfterUnit = gallonLine.match(/(?:gal(?:ones)?|gals?|ugl|gl)\s*[:.]?\s*(\d{1,4}(?:[.,]\d{1,3})?)/i)?.[1];
+  const gallonNumbers = gallonLine.match(/\d{1,4}(?:[.,]\d{1,3})?/g) || [];
+  const gallons = receiptNumber(gallonsAfterUnit || gallonNumbers.at(-1));
+  const odometerLine = lines.find(line => /(kilometraje|od[oó]metro|\bodo\b)/i.test(line)) || '';
+  const odometer = receiptNumber(odometerLine.match(/[\d.,]{3,}/)?.[0]);
+  return { total, provider, product, gallons, odometer, hasUsefulData: Boolean(provider || product || Number.isFinite(gallons) || Number.isFinite(odometer) || Number.isFinite(total)) };
+};
 
 const plateKey = value => String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 const isPlateLookalike = (left, right) => ['0O', '1I', '1L', '5S', '2Z', '8B', '6G'].includes([left, right].sort().join(''));
@@ -395,7 +421,7 @@ function App() {
     </main>
     {modal?.type === 'maintenance' && <MaintenanceModal record={modal.record} data={data} assignedVehicleId={profile?.role === 'driver' && !driverPreview ? profile.permissions?.assignedVehicleId : ''} onClose={() => setModal(null)} onSave={async record => { if (await update('maintenance',record)) setModal(null); }} />}
     {modal?.type === 'vehicle' && <VehicleModal record={modal.record} onClose={() => setModal(null)} onSave={async record => { if (await update('vehicles', record)) setModal(null); }} />}
-    {modal?.type === 'fuel' && <FuelModalFast record={modal.record} data={data} assignedVehicleId={profile?.role === 'driver' && !driverPreview ? profile.permissions?.assignedVehicleId : ''} onClose={() => setModal(null)} onSave={record => { update('fuels',{...record,date:record.date||today(),time:record.time||now()}); setModal(null); }} />}
+    {modal?.type === 'fuel' && <FuelModalReceipt record={modal.record} data={data} assignedVehicleId={profile?.role === 'driver' && !driverPreview ? profile.permissions?.assignedVehicleId : ''} onClose={() => setModal(null)} onSave={record => { update('fuels',{...record,date:record.date||today(),time:record.time||now()}); setModal(null); }} />}
     {modal && !['quickDeparture','quickReturn','maintenance','vehicle','fuel'].includes(modal.type) && <RecordModal type={modal.type} record={modal.record} data={data} onClose={() => setModal(null)} onSave={(collection, record) => { update(collection,record); setModal(null); }} />}
     {successMessage && <dialog open className="success-dialog" aria-label="Registro confirmado"><div className="success-dialog-content"><span className="success-check" aria-hidden="true">✓</span><h2>Registro confirmado</h2><p>{successMessage}</p><button type="button" className="primary" onClick={() => setSuccessMessage('')}>Entendido</button></div></dialog>}
   </>;
@@ -611,10 +637,10 @@ function Trips({data,drivers=[],profile,onEdit,onDelete}) {
   </>;
 }
 function Maintenance({data,onEdit,onDelete}) { return <Table heads={['Fecha','Vehículo','Servicio','Próxima fecha / km','']} >{data.maintenance.slice().reverse().map(x=><tr key={x.id}><td>{date(x.date)}</td><td>{vehicleName(data,x.vehicleId)}</td><td>{x.type}</td><td>{x.nextDate || '—'} {x.nextKm ? ` / ${x.nextKm} km` : ''}</td><td><Actions onEdit={()=>onEdit(x)} onDelete={()=>onDelete(x)}/></td></tr>)}</Table>; }
-function Fuel({data,onEdit,onDelete}) { return <Table heads={['Fecha','Vehículo','Proveedor','Litros','Costo','Km','']} >{data.fuels.slice().reverse().map(x=><tr key={x.id}><td>{date(x.date)}</td><td>{vehicleName(data,x.vehicleId)}</td><td>{x.provider}</td><td>{x.liters}</td><td>{money(x.cost)}</td><td>{x.km}</td><td><Actions onEdit={()=>onEdit(x)} onDelete={()=>onDelete(x)}/></td></tr>)}</Table>; }
+function Fuel({data,onEdit,onDelete}) { return <Table heads={['Fecha','Vehículo','Grifo / producto','Galones','Costo','Km','']} >{data.fuels.slice().reverse().map(x=><tr key={x.id}><td>{date(x.date)}</td><td>{vehicleName(data,x.vehicleId)}</td><td><b>{x.provider || '—'}</b>{x.product && <small className="fuel-product-cell">{x.product}</small>}</td><td>{x.gallons ?? x.liters ?? '—'}</td><td>{money(x.cost)}</td><td>{x.km || '—'}</td><td><Actions onEdit={()=>onEdit(x)} onDelete={()=>onDelete(x)}/></td></tr>)}</Table>; }
 function Expenses({data,onEdit,onDelete}) { return <Table heads={['Fecha','Vehículo','Tipo','Detalle','Proveedor','Costo','']} >{data.expenses.slice().reverse().map(x=><tr key={x.id}><td>{date(x.date)}</td><td>{vehicleName(data,x.vehicleId)}</td><td>{x.type}</td><td>{x.detail}</td><td>{x.provider}</td><td>{money(x.cost)}</td><td><Actions onEdit={()=>onEdit(x)} onDelete={()=>onDelete(x)}/></td></tr>)}</Table>; }
 function Vehicles({data,onEdit,onDelete}) { return <div className="vehicle-grid">{data.vehicles.map(v=>{const inRoute=data.trips.some(t=>t.vehicleId===v.id&&!t.endKm);const status=inRoute?'En ruta':(v.status||'Disponible');return <article className="vehicle-card" key={v.id}><div className="card-top"><span className={`badge ${inRoute?'warn':'ok'}`}>{status}</span><VehicleActions onEdit={()=>onEdit(v)} onDelete={()=>onDelete(v)}/></div><div className="vehicle-plate">{v.plate}</div><p>{v.vehicle_type==='Camioneta'?'Carro':(v.vehicle_type || 'Carro')} · {v.brand} {v.model}</p>{v.driver&&<div className="info-line">Chofer: {v.driver}</div>}<div className="info-line">Odómetro actual</div><h2>{currentKm(data,v).toLocaleString('es-PE')} km</h2></article>})}</div>; }
-function Reports({data}) { const download=()=>{const rows=[['Tipo','Fecha','Vehículo','Detalle','Costo'],...data.trips.map(t=>['Recorrido',t.departureDate,vehicleName(data,t.vehicleId),`${t.origin} - ${t.destination}`,t.endKm?Number(t.endKm)-Number(t.startKm):'']),...data.fuels.map(x=>['Combustible',x.date,vehicleName(data,x.vehicleId),`${x.liters} litros`,x.cost]),...data.expenses.map(x=>['Gasto',x.date,vehicleName(data,x.vehicleId),`${x.type}: ${x.detail}`,x.cost])];const blob=new Blob(['\ufeff'+rows.map(r=>r.map(v=>`"${String(v||'').replaceAll('"','""')}"`).join(',')).join('\n')],{type:'text/csv'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='RutaControl.csv';a.click();};return <section><div className="grid-two"><article className="panel"><h2>Exportar a Excel</h2><p>Descarga un CSV compatible con Excel.</p><br/><button className="primary" onClick={download}>⇩ Descargar Excel</button></article><article className="panel"><h2>Exportar a PDF</h2><p>Usa la impresión del navegador para guardar el reporte en PDF.</p><br/><button className="primary" onClick={()=>print()}>⇩ Guardar como PDF</button></article></div></section>; }
+function Reports({data}) { const download=()=>{const rows=[['Tipo','Fecha','Vehículo','Detalle','Costo'],...data.trips.map(t=>['Recorrido',t.departureDate,vehicleName(data,t.vehicleId),`${t.origin} - ${t.destination}`,t.endKm?Number(t.endKm)-Number(t.startKm):'']),...data.fuels.map(x=>['Combustible',x.date,vehicleName(data,x.vehicleId),`${x.product || 'Combustible'} · ${x.gallons ?? x.liters ?? '—'} galones`,x.cost]),...data.expenses.map(x=>['Gasto',x.date,vehicleName(data,x.vehicleId),`${x.type}: ${x.detail}`,x.cost])];const blob=new Blob(['\ufeff'+rows.map(r=>r.map(v=>`"${String(v||'').replaceAll('"','""')}"`).join(',')).join('\n')],{type:'text/csv'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='RutaControl.csv';a.click();};return <section><div className="grid-two"><article className="panel"><h2>Exportar a Excel</h2><p>Descarga un CSV compatible con Excel.</p><br/><button className="primary" onClick={download}>⇩ Descargar Excel</button></article><article className="panel"><h2>Exportar a PDF</h2><p>Usa la impresión del navegador para guardar el reporte en PDF.</p><br/><button className="primary" onClick={()=>print()}>⇩ Guardar como PDF</button></article></div></section>; }
 function UsersPage({drivers,vehicles,onChanged}) {
   const [form,setForm]=useState({fullName:'',accessCode:'',pin:''});
   const [message,setMessage]=useState('');
@@ -704,6 +730,100 @@ function QuickDeparture({data,onClose,onSave}) { const [form,setForm]=useState({
 function QuickReturn({data,onClose,onSave}) { const active=data.trips.filter(t=>!t.endKm); const [form,setForm]=useState({returnDate:today(),returnTime:now()}); const trip=active.find(t=>t.id===form.tripId); const change=(key,value)=>setForm(x=>({...x,[key]:value})); const submit=e=>{e.preventDefault();if(Number(form.endKm)<Number(trip.startKm))return alert('El kilometraje final no puede ser menor al de salida.');onSave({...trip,endKm:form.endKm,endPhoto:form.endPhoto||trip.endPhoto,returnDate:form.returnDate,returnTime:form.returnTime,status:'Finalizado'});}; return <dialog open><form onSubmit={submit}><div className="modal-head"><div><h2>Registrar retorno</h2><p>Completa el recorrido que regresó a la empresa.</p></div><button type="button" className="close" onClick={onClose}>×</button></div>{active.length===0?<p className="empty-message">No hay vehículos con un recorrido pendiente de retorno.</p>:<><div className="form-grid"><div className="field full"><label>Recorrido en ruta</label><select required value={form.tripId||''} onChange={e=>change('tripId',e.target.value)}><option value="">Seleccionar recorrido</option>{active.map(t=><option key={t.id} value={t.id}>{vehicleName(data,t.vehicleId)} · {t.driver} · {t.origin} → {t.destination}</option>)}</select></div><div className="field"><label>Fecha de retorno</label><input required type="date" value={form.returnDate} onChange={e=>change('returnDate',e.target.value)}/></div><div className="field"><label>Hora de retorno</label><input required type="time" value={form.returnTime} onChange={e=>change('returnTime',e.target.value)}/></div><div className="field"><label>Kilometraje de retorno</label><input required type="number" min={trip?.startKm||0} value={form.endKm||''} onChange={e=>change('endKm',e.target.value)}/></div><div className="field"><label>Foto del odómetro</label><PhotoSource onChange={e=>change('endPhoto',e.target.files?.[0]?.name||'Foto capturada')}/></div></div><div className="form-actions"><button type="button" className="secondary" onClick={onClose}>Cancelar</button><button className="primary">Finalizar recorrido</button></div></>}</form></dialog>; }
 function LegacyVehicleModal({record={},onClose,onSave}){const [form,setForm]=useState(record);const change=(k,v)=>setForm(x=>({...x,[k]:v}));const submit=e=>{e.preventDefault();onSave({...form,id:form.id||id()});};return <dialog open className="maintenance-modal"><form onSubmit={submit}><div className="maintenance-hero"><div><p className="eyebrow">FRUTOS TROPICALES EXPORT. PERÚ</p><h2>{record.id?'Editar vehículo':'Registrar vehículo'}</h2><p>Agrega un vehículo a la flota de forma rápida.</p></div><i className="hero-mango"/></div><button type="button" className="close maintenance-close" onClick={onClose}>×</button><div className="form-grid maintenance-grid-form"><div className="field"><label>Placa</label><input required value={form.plate||''} onChange={e=>change('plate',e.target.value)}/></div><div className="field"><label>Marca</label><input required value={form.brand||''} onChange={e=>change('brand',e.target.value)}/></div><div className="field"><label>Modelo</label><input required value={form.model||''} onChange={e=>change('model',e.target.value)}/></div><div className="field"><label>Año</label><input required type="number" value={form.year||''} onChange={e=>change('year',e.target.value)}/></div><div className="field"><label>Kilometraje inicial</label><input required type="number" min="0" value={form.km||''} onChange={e=>change('km',e.target.value)}/></div><div className="field"><label>Estado</label><select value={form.status||'Disponible'} onChange={e=>change('status',e.target.value)}><option>Disponible</option><option>En mantenimiento</option><option>Fuera de servicio</option></select></div></div><div className="form-actions"><button type="button" className="secondary" onClick={onClose}>Cancelar</button><button className="primary">Guardar vehículo</button></div></form></dialog>;}
 function FuelModalFast({record={},data,assignedVehicleId='',onClose,onSave}) { const [form,setForm]=useState(()=>({...record,vehicleId:record.vehicleId||assignedVehicleId||''}));const [status,setStatus]=useState('');const change=(k,v)=>setForm(x=>({...x,[k]:v}));const scan=async(file,type)=>{if(!file)return;setStatus('Leyendo fotografía…');try{const w=await createWorker('eng');const {data:{text}}=await w.recognize(file);await w.terminate();if(type==='receipt'){const info=receiptInfo(text);change('receipt',file.name);if(Number.isFinite(info.total))change('cost',info.total.toFixed(2));if(info.provider)change('provider',info.provider);setStatus(`${Number.isFinite(info.total)?`Monto final: S/ ${info.total.toFixed(2)}. `:''}${info.provider?`Grifo: ${info.provider}.`:''}`||'No se reconocieron monto ni grifo.');}else{const km=Math.max(...(text.match(/\b\d{3,7}(?:[.,]\d{3})*\b/g)||[]).map(x=>Number(x.replace(/\D/g,''))).filter(Boolean));change('kmPhoto',file.name);if(Number.isFinite(km)){change('km',String(km));setStatus(`Kilometraje reconocido: ${km.toLocaleString('es-PE')} km.`)}else setStatus('No se pudo leer el odómetro.');}}catch{setStatus('No se pudo leer la fotografía.');}};const submit=e=>{e.preventDefault();onSave({...form,id:form.id||id()});};return <dialog open className="quick-departure-modal"><form onSubmit={submit}><div className="modal-head"><div><p className="eyebrow">COMBUSTIBLE</p><h2>Registrar abastecimiento</h2></div><button type="button" className="close" onClick={onClose}>×</button></div><div className="form-grid"><div className="field"><label>{assignedVehicleId?'Vehículo asignado (puedes cambiarlo)':'Vehículo'}</label><select required value={form.vehicleId||''} onChange={e=>change('vehicleId',e.target.value)}><option value="">Seleccionar vehículo</option>{data.vehicles.map(v=><option key={v.id} value={v.id}>{v.plate} · {v.brand}</option>)}</select></div><div className="field"><label>Fecha</label><input required type="date" value={form.date||today()} readOnly/></div><div className="field"><label>Grifo / proveedor</label><input required value={form.provider||''} onChange={e=>change('provider',e.target.value)}/></div><div className="field"><label>Monto final / costo total S/</label><input required type="number" min="0" step="0.01" value={form.cost||''} onChange={e=>change('cost',e.target.value)}/></div><div className="field full"><label>Foto del odómetro</label><input required type="file" accept="image/*" onChange={e=>scan(e.target.files?.[0],'km')}/></div><div className="field full"><label>Foto del comprobante</label><PhotoSource onChange={e=>scan(e.target.files?.[0],'receipt')}/></div></div>{status&&<p className="ocr-status">{status}</p>}<div className="form-actions"><button type="button" className="secondary" onClick={onClose}>Cancelar</button><button className="primary">Guardar combustible</button></div></form></dialog>; }
+function FuelModalReceipt({ record = {}, data, assignedVehicleId = '', onClose, onSave }) {
+  const [form, setForm] = useState(() => ({ ...record, vehicleId: record.vehicleId || assignedVehicleId || '' }));
+  const [status, setStatus] = useState('');
+  const change = (key, value) => setForm(current => ({ ...current, [key]: value }));
+
+  const scanReceipt = async file => {
+    if (!file) return;
+    change('receipt', file.name);
+    setStatus('Leyendo los datos del comprobante…');
+    try {
+      const worker = await createWorker('eng');
+      const { data: { text } } = await worker.recognize(file);
+      await worker.terminate();
+      const info = receiptInfo(text);
+      if (info.provider) change('provider', info.provider);
+      if (info.product) change('product', info.product);
+      if (Number.isFinite(info.gallons) && info.gallons > 0 && info.gallons < 1000) change('gallons', String(info.gallons));
+      if (Number.isFinite(info.odometer) && info.odometer > 0) change('km', String(info.odometer));
+      if (Number.isFinite(info.total)) change('cost', info.total.toFixed(2));
+      setStatus(info.hasUsefulData
+        ? 'Comprobante leído. Revisa los datos antes de guardar.'
+        : 'No se pudo reconocer el comprobante. Completa los campos manualmente.');
+    } catch {
+      setStatus('No se pudo leer el comprobante. Completa los datos manualmente.');
+    }
+  };
+
+  const scanOdometer = async file => {
+    if (!file) return;
+    change('kmPhoto', file.name);
+    setStatus('Leyendo el odómetro…');
+    try {
+      const worker = await createWorker('eng');
+      const { data: { text } } = await worker.recognize(file);
+      await worker.terminate();
+      const values = (text.match(/\b\d{3,7}(?:[.,]\d{1,3})*\b/g) || [])
+        .map(value => receiptNumber(value)).filter(value => Number.isFinite(value) && value > 0);
+      const km = Math.max(...values);
+      if (Number.isFinite(km)) {
+        change('km', String(km));
+        setStatus(`Odómetro reconocido: ${km.toLocaleString('es-PE')} km. Puedes corregirlo si fuera necesario.`);
+      } else setStatus('No se pudo leer el odómetro. Escríbelo manualmente.');
+    } catch {
+      setStatus('No se pudo leer el odómetro. Escríbelo manualmente.');
+    }
+  };
+
+  const submit = event => {
+    event.preventDefault();
+    onSave({ ...form, id: form.id || id(), liters: form.gallons ?? form.liters ?? '' });
+  };
+
+  return <dialog open className="quick-departure-modal fuel-modal">
+    <form onSubmit={submit}>
+      <div className="modal-head">
+        <div><p className="eyebrow">COMBUSTIBLE</p><h2>Registrar abastecimiento</h2></div>
+        <button type="button" className="close" onClick={onClose}>×</button>
+      </div>
+
+      <div className="form-grid fuel-basics">
+        <div className="field">
+          <label>{assignedVehicleId ? 'Vehículo asignado (puedes cambiarlo)' : 'Vehículo'}</label>
+          <select required value={form.vehicleId || ''} onChange={event => change('vehicleId', event.target.value)}>
+            <option value="">Seleccionar vehículo</option>
+            {data.vehicles.map(vehicle => <option key={vehicle.id} value={vehicle.id}>{vehicle.plate} · {vehicle.brand}</option>)}
+          </select>
+        </div>
+        <div className="field"><label>Fecha</label><input required type="date" value={form.date || today()} readOnly /></div>
+      </div>
+
+      <section className="fuel-receipt-card">
+        <div className="fuel-receipt-heading">
+          <div><p className="eyebrow">DATOS DEL COMPROBANTE</p><b>Fotografía el ticket y verifica la lectura.</b></div>
+          <PhotoSource onChange={event => scanReceipt(event.target.files?.[0])} />
+        </div>
+        <div className="fuel-receipt-fields">
+          <div className="field"><label>Grifo / proveedor</label><input required value={form.provider || ''} onChange={event => change('provider', event.target.value)} placeholder="Ejemplo: COESTI · E/S Casma" /></div>
+          <div className="field"><label>Producto</label><input value={form.product || ''} onChange={event => change('product', event.target.value)} placeholder="Ejemplo: Diesel B5" /></div>
+          <div className="field"><label>Galones abastecidos</label><input required type="number" min="0" step="0.001" value={form.gallons ?? form.liters ?? ''} onChange={event => change('gallons', event.target.value)} placeholder="Ejemplo: 14.641" /></div>
+          <div className="field"><label>Monto final / costo total S/</label><input required type="number" min="0" step="0.01" value={form.cost || ''} onChange={event => change('cost', event.target.value)} placeholder="Ejemplo: 250.00" /></div>
+          <div className="field full"><label>Kilometraje indicado</label><input type="number" min="0" step="0.1" value={form.km || ''} onChange={event => change('km', event.target.value)} placeholder="Se completa desde el ticket u odómetro" /></div>
+        </div>
+        <p className="fuel-receipt-note">La lectura es automática, pero siempre puedes corregir los valores antes de guardar.</p>
+      </section>
+
+      <div className="field fuel-odometer-photo">
+        <label>Foto del odómetro <small>(opcional, para contrastar)</small></label>
+        <PhotoSource onChange={event => scanOdometer(event.target.files?.[0])} />
+      </div>
+      {status && <p className="ocr-status">{status}</p>}
+      <div className="form-actions"><button type="button" className="secondary" onClick={onClose}>Cancelar</button><button className="primary">Guardar combustible</button></div>
+    </form>
+  </dialog>;
+}
 function FuelModalSmart({record={},data,onClose,onSave}) { return <FuelModalFast record={record} data={data} onClose={onClose} onSave={onSave}/>; }
 function FuelModal({record={},data,onClose,onSave}) { return <FuelModalSmart record={record} data={data} onClose={onClose} onSave={onSave}/>; }
 function MaintenanceModal({record={},data,assignedVehicleId='',onClose,onSave}) { const [form,setForm]=useState(()=>({...record,vehicleId:record.vehicleId||assignedVehicleId||''})); const [status,setStatus]=useState(''); const change=(key,value)=>setForm(x=>({...x,[key]:value})); const scan=async(file,target)=>{if(!file)return;setStatus('Analizando la fotografía…');try{const worker=await createWorker('eng');const {data:{text}}=await worker.recognize(file);await worker.terminate();if(target==='plate'){const clean=text.toUpperCase().replace(/[^A-Z0-9]/g,'');const vehicle=data.vehicles.find(v=>clean.includes(String(v.plate||'').toUpperCase().replace(/[^A-Z0-9]/g,'')));change('platePhoto',file.name);if(vehicle){change('vehicleId',vehicle.id);setStatus(`Placa reconocida: ${vehicle.plate}.`);}else setStatus('No se encontró la placa; selecciona el vehículo manualmente.');}else{const values=(text.match(/\b\d{3,7}(?:[.,]\d{3})*\b/g)||[]).map(x=>Number(x.replace(/[^0-9]/g,''))).filter(x=>x>0);const km=Math.max(...values);change('kmPhoto',file.name);if(Number.isFinite(km)){change('serviceKm',String(km));setStatus(`Odómetro reconocido: ${km.toLocaleString('es-PE')} km.`);}else setStatus('No se pudo leer el odómetro; escríbelo manualmente.');}}catch{setStatus('No se pudo leer la foto. Procura buena luz y texto enfocado.');}}; const submit=e=>{e.preventDefault();onSave({...form,id:form.id||id()});}; const services=['Afinamiento general','Cambio de aceite y filtros','Revisión de frenos','Rotación / cambio de neumáticos','Revisión técnica','Reparación correctiva','Otro']; return <dialog open className="maintenance-modal"><form onSubmit={submit}><div className="maintenance-hero"><div><p className="eyebrow">FRUTOS TROPICALES EXPORT. PERÚ</p><h2>Mantenimiento del vehículo</h2><p>Un registro claro para cuidar la flota que mueve nuestra cosecha.</p></div><i className="hero-mango"/></div><button type="button" className="close maintenance-close" onClick={onClose}>×</button><div className="maintenance-steps"><span>1. Identifica</span><span>2. Registra</span><span>3. Programa</span></div><section className="photo-capture"><label className="photo-card"><b>◫ Foto de placa</b><small>Selecciona el vehículo automáticamente</small><PhotoSource onChange={e=>scan(e.target.files?.[0],'plate')}/></label><label className="photo-card"><b>◉ Foto del odómetro</b><small>Completa el kilometraje del servicio</small><PhotoSource onChange={e=>scan(e.target.files?.[0],'km')}/></label></section>{status&&<p className="ocr-status">{status}</p>}<div className="form-grid maintenance-grid-form"><div className="field"><label>{assignedVehicleId?'Vehículo asignado (puedes cambiarlo)':'Vehículo'}</label><select required value={form.vehicleId||''} onChange={e=>change('vehicleId',e.target.value)}><option value="">Seleccionar vehículo</option>{data.vehicles.map(v=><option key={v.id} value={v.id}>{v.plate} · {v.brand} {v.model}</option>)}</select></div><div className="field"><label>Servicio realizado</label><select value={form.type||services[0]} onChange={e=>change('type',e.target.value)}>{services.map(x=><option key={x}>{x}</option>)}</select></div><div className="field"><label>Fecha del servicio</label><input required type="date" value={form.date||today()} onChange={e=>change('date',e.target.value)}/></div><div className="field"><label>Kilometraje del servicio</label><input required type="number" min="0" value={form.serviceKm||''} onChange={e=>change('serviceKm',e.target.value)} placeholder="Se completa con la foto"/></div><div className="field"><label>Próxima fecha</label><input type="date" value={form.nextDate||''} onChange={e=>change('nextDate',e.target.value)}/></div><div className="field"><label>Próximo kilometraje</label><input type="number" min="0" value={form.nextKm||''} onChange={e=>change('nextKm',e.target.value)}/></div><div className="field full"><label>Observaciones</label><textarea value={form.notes||''} onChange={e=>change('notes',e.target.value)} placeholder="Ejemplo: cambio de filtros, estado de neumáticos o recomendaciones del taller."/></div></div><div className="form-actions"><button type="button" className="secondary" onClick={onClose}>Cancelar</button><button className="primary">Guardar mantenimiento</button></div></form></dialog>; }
