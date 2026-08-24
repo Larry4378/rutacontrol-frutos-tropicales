@@ -194,6 +194,26 @@ function App() {
       window.clearInterval(syncTimer);
     };
   }, [session, profileReady, profile?.id, profile?.role]);
+  useEffect(() => {
+    if (!session || !profileReady || !profile) return;
+    let active = true;
+    const loadMaintenance = async () => {
+      const { data: rows, error: loadError } = await supabase
+        .from('maintenance_records')
+        .select('id,vehicle_id,service_type,service_date,service_km,next_date,next_km,notes,created_by,created_at')
+        .order('service_date', { ascending: false });
+      if (!active) return;
+      if (loadError) return setError(`No se pudieron cargar los mantenimientos: ${loadError.message}`);
+      setData(previous => ({ ...previous, maintenance: (rows || []).map(row => ({
+        id: row.id, vehicleId: row.vehicle_id, type: row.service_type, date: row.service_date,
+        serviceKm: row.service_km, nextDate: row.next_date, nextKm: row.next_km,
+        notes: row.notes, createdBy: row.created_by, createdAt: row.created_at, _saved: true,
+      })) }));
+    };
+    loadMaintenance();
+    window.addEventListener('focus', loadMaintenance);
+    return () => { active = false; window.removeEventListener('focus', loadMaintenance); };
+  }, [session, profileReady, profile?.id]);
   const loadUsers = async () => {
     if (!session) {
       setProfile(null);
@@ -297,6 +317,33 @@ function App() {
       }
       return true;
     }
+    if (collection === 'maintenance') {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { alert('Debes iniciar sesión para guardar el mantenimiento.'); return false; }
+      const payload = {
+        id: record.id,
+        vehicle_id: record.vehicleId,
+        created_by: user.id,
+        service_type: record.type,
+        service_date: record.date || today(),
+        service_km: Number(record.serviceKm),
+        next_date: record.nextDate || null,
+        next_km: record.nextKm === '' || record.nextKm === undefined ? null : Number(record.nextKm),
+        notes: record.notes || null,
+      };
+      const request = record._saved
+        ? supabase.from('maintenance_records').update(payload).eq('id', record.id).select().single()
+        : supabase.from('maintenance_records').insert(payload).select().single();
+      const { data: saved, error: saveError } = await request;
+      if (saveError) { alert(`No se pudo guardar el mantenimiento: ${saveError.message}`); return false; }
+      const savedRecord = {
+        id: saved.id, vehicleId: saved.vehicle_id, type: saved.service_type, date: saved.service_date,
+        serviceKm: saved.service_km, nextDate: saved.next_date, nextKm: saved.next_km,
+        notes: saved.notes, createdBy: saved.created_by, createdAt: saved.created_at, _saved: true,
+      };
+      setData(previous => ({ ...previous, maintenance: previous.maintenance.some(item => item.id === saved.id) ? previous.maintenance.map(item => item.id === saved.id ? savedRecord : item) : [...previous.maintenance, savedRecord] }));
+      return true;
+    }
     if (collection !== 'vehicles') {
       setData(previous => ({ ...previous, [collection]: previous[collection].some(x => x.id === record.id) ? previous[collection].map(x => x.id === record.id ? record : x) : [...previous[collection], { ...record, id: record.id || id() }] }));
       return true;
@@ -319,6 +366,7 @@ function App() {
       if (typedPlate?.trim().toUpperCase() !== plate) return alert('El vehículo no fue eliminado. La placa no coincide.');
     } else if (!confirm('¿Eliminar este registro?')) return;
     if (collection === 'vehicles') { const { error: deleteError } = await supabase.from('vehicles').delete().eq('id', recordId); if (deleteError) return alert(`No se pudo eliminar el vehículo: ${deleteError.message}`); }
+    if (collection === 'maintenance') { const { error: deleteError } = await supabase.from('maintenance_records').delete().eq('id', recordId); if (deleteError) return alert(`No se pudo eliminar el mantenimiento: ${deleteError.message}`); }
     setData(previous => ({ ...previous, [collection]: previous[collection].filter(x => x.id !== recordId) }));
   };
   const tripsKm = data.trips.reduce((total, trip) => total + (trip.endKm ? Math.max(0, Number(trip.endKm) - Number(trip.startKm)) : 0), 0);
@@ -345,7 +393,7 @@ function App() {
       {view === 'reports' && <Reports data={data} />}
       {view === 'users' && <UsersPage drivers={drivers} vehicles={data.vehicles} onChanged={loadUsers}/>}
     </main>
-    {modal?.type === 'maintenance' && <MaintenanceModal record={modal.record} data={data} assignedVehicleId={profile?.role === 'driver' && !driverPreview ? profile.permissions?.assignedVehicleId : ''} onClose={() => setModal(null)} onSave={record => { update('maintenance',record); setModal(null); }} />}
+    {modal?.type === 'maintenance' && <MaintenanceModal record={modal.record} data={data} assignedVehicleId={profile?.role === 'driver' && !driverPreview ? profile.permissions?.assignedVehicleId : ''} onClose={() => setModal(null)} onSave={async record => { if (await update('maintenance',record)) setModal(null); }} />}
     {modal?.type === 'vehicle' && <VehicleModal record={modal.record} onClose={() => setModal(null)} onSave={async record => { if (await update('vehicles', record)) setModal(null); }} />}
     {modal?.type === 'fuel' && <FuelModalFast record={modal.record} data={data} assignedVehicleId={profile?.role === 'driver' && !driverPreview ? profile.permissions?.assignedVehicleId : ''} onClose={() => setModal(null)} onSave={record => { update('fuels',{...record,date:record.date||today(),time:record.time||now()}); setModal(null); }} />}
     {modal && !['quickDeparture','quickReturn','maintenance','vehicle','fuel'].includes(modal.type) && <RecordModal type={modal.type} record={modal.record} data={data} onClose={() => setModal(null)} onSave={(collection, record) => { update(collection,record); setModal(null); }} />}
