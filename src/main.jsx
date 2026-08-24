@@ -742,12 +742,14 @@ function FuelModalFast({record={},data,assignedVehicleId='',onClose,onSave}) { c
 function FuelModalReceipt({ record = {}, data, assignedVehicleId = '', onClose, onSave }) {
   const [form, setForm] = useState(() => ({ ...record, vehicleId: record.vehicleId || assignedVehicleId || '' }));
   const [status, setStatus] = useState('');
+  const [hasReceipt, setHasReceipt] = useState(Boolean(record.receipt));
   const change = (key, value) => setForm(current => ({ ...current, [key]: value }));
   const isCoestiReceipt = Boolean(form.coesti || /\bcoesti\b/i.test(form.provider || ''));
 
   const scanReceipt = async file => {
     if (!file) return;
     change('receipt', file.name);
+    setHasReceipt(true);
     setStatus('Leyendo los datos del comprobante…');
     try {
       const worker = await createWorker('eng');
@@ -799,6 +801,7 @@ function FuelModalReceipt({ record = {}, data, assignedVehicleId = '', onClose, 
 
   const submit = event => {
     event.preventDefault();
+    if (!hasReceipt) return alert('Primero toma una foto del comprobante para completar el abastecimiento.');
     onSave({ ...form, id: form.id || id(), liters: form.gallons ?? form.liters ?? '' });
   };
 
@@ -809,9 +812,16 @@ function FuelModalReceipt({ record = {}, data, assignedVehicleId = '', onClose, 
         <button type="button" className="close" onClick={onClose}>×</button>
       </div>
 
-      <div className="form-grid fuel-basics">
+      <section className="fuel-capture-start">
+        <p className="eyebrow">PASO 1 · COMPROBANTE</p>
+        <h3>Toma la foto del comprobante</h3>
+        <p>La aplicación reconocerá el formato y abrirá únicamente los datos encontrados.</p>
+        <PhotoSource onChange={event => scanReceipt(event.target.files?.[0])} />
+      </section>
+
+      {hasReceipt && <><div className="form-grid fuel-basics">
         <div className="field">
-          <label>{assignedVehicleId ? 'Vehículo asignado (puedes cambiarlo)' : 'Vehículo'}</label>
+          <label>{assignedVehicleId ? 'Vehículo asignado (puedes cambiarlo)' : 'Vehículo reconocido'}</label>
           <select required value={form.vehicleId || ''} onChange={event => change('vehicleId', event.target.value)}>
             <option value="">Seleccionar vehículo</option>
             {data.vehicles.map(vehicle => <option key={vehicle.id} value={vehicle.id}>{vehicle.plate} · {vehicle.brand}</option>)}
@@ -822,8 +832,7 @@ function FuelModalReceipt({ record = {}, data, assignedVehicleId = '', onClose, 
 
       <section className="fuel-receipt-card">
         <div className="fuel-receipt-heading">
-          <div><p className="eyebrow">DATOS DEL COMPROBANTE</p><b>Fotografía el ticket y verifica la lectura.</b></div>
-          <PhotoSource onChange={event => scanReceipt(event.target.files?.[0])} />
+          <div><p className="eyebrow">PASO 2 · DATOS DETECTADOS</p><b>Revisa solo los datos de este comprobante.</b></div>
         </div>
         <div className="fuel-receipt-fields">
           <div className="field"><label>Grifo / proveedor</label><input required value={form.provider || ''} onChange={event => change('provider', event.target.value)} placeholder="Ejemplo: COESTI · E/S Casma" /></div>
@@ -849,7 +858,7 @@ function FuelModalReceipt({ record = {}, data, assignedVehicleId = '', onClose, 
         <label>Foto del odómetro <small>(opcional, para contrastar)</small></label>
         <PhotoSource onChange={event => scanOdometer(event.target.files?.[0])} />
       </div>
-      {status && <p className="ocr-status">{status}</p>}
+      </>}{status && <p className="ocr-status">{status}</p>}
       <div className="form-actions"><button type="button" className="secondary" onClick={onClose}>Cancelar</button><button className="primary">Guardar combustible</button></div>
     </form>
   </dialog>;
