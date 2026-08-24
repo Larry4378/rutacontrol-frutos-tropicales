@@ -16,14 +16,31 @@ const id = () => crypto.randomUUID();
 const date = value => value ? new Intl.DateTimeFormat('es-PE', { dateStyle: 'medium' }).format(new Date(`${value}T12:00:00`)) : '—';
 const money = value => `S/ ${Number(value || 0).toFixed(2)}`;
 const currentKm = (data, vehicle) => Math.max(Number(vehicle.km || 0), ...data.trips.filter(t => t.vehicleId === vehicle.id).map(t => Number(t.endKm || t.startKm || 0)));
-const gpsRouteKm = points => (points || []).slice(1).reduce((total, point, index) => {
-  const previous = points[index];
+const gpsDistanceMeters = (previous, point) => {
   const rad = value => value * Math.PI / 180;
   const lat = rad(point.lat - previous.lat);
   const lng = rad(point.lng - previous.lng);
   const a = Math.sin(lat / 2) ** 2 + Math.cos(rad(previous.lat)) * Math.cos(rad(point.lat)) * Math.sin(lng / 2) ** 2;
-  return total + 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+};
+const gpsRouteKm = points => (points || []).slice(1).reduce((total, point, index) => {
+  return total + gpsDistanceMeters(points[index], point) / 1000;
 }, 0);
+// El GPS de un teléfono puede enviar saltos al recuperar señal. Solo se
+// conservan puntos con precisión razonable y desplazamientos físicamente posibles.
+const shouldKeepGpsPoint = (previous, point) => {
+  if (!Number.isFinite(point.lat) || !Number.isFinite(point.lng) || point.accuracy > 120) return false;
+  if (!previous) return true;
+  const distance = gpsDistanceMeters(previous, point);
+  const previousTime = Date.parse(previous.at || '');
+  const seconds = Number.isFinite(previousTime) ? Math.max(0, (point.timestamp - previousTime) / 1000) : 0;
+  const uncertainty = Math.max(10, Number(previous.accuracy || 0) + Number(point.accuracy || 0));
+  // Ignora pequeñas variaciones cuando el vehículo está detenido.
+  if (seconds < 4 && distance < Math.max(12, Math.min(40, uncertainty * 0.45))) return false;
+  // 150 km/h más un margen por precisión: impide trayectos falsos por saltos GPS.
+  const maximumDistance = Math.max(100, seconds * 42 + uncertainty * 1.5);
+  return seconds === 0 ? distance <= uncertainty : distance <= maximumDistance;
+};
 // Un recorrido se considera pendiente solo mientras no tenga kilometraje final
 // ni haya sido confirmado como finalizado en Supabase.
 const isTripOpen = trip => (trip?.endKm === null || trip?.endKm === undefined || trip?.endKm === '') && trip?.status !== 'Finalizado';
@@ -348,18 +365,23 @@ function RouteMap({data,onUpdate}) {
     const points=(active?.routePoints||[]).map(point=>[point.lat,point.lng]);
     if(!map.current)return;
     if(line.current){line.current.remove();line.current=null;}
-    if(marker.current){marker.current.remove();marker.current=null;}
-    if(startMarker.current){startMarker.current.remove();startMarker.current=null;}
-    if(!points.length)return;
+    if(!points.length){
+      if(marker.current){marker.current.remove();marker.current=null;}
+      if(startMarker.current){startMarker.current.remove();startMarker.current=null;}
+      return;
+    }
     line.current=L.layerGroup([
       L.polyline(points,{color:'#ffffff',weight:10,opacity:.95}),
       L.polyline(points,{color:'#1267b3',weight:6,opacity:1}),
     ]).addTo(map.current);
-    startMarker.current=L.marker(points[0],{icon:L.divIcon({className:'route-start-icon',html:'<span title="Punto de salida">●</span>',iconSize:[24,24],iconAnchor:[12,12]})}).addTo(map.current);
+    if(!startMarker.current) startMarker.current=L.marker(points[0],{icon:L.divIcon({className:'route-start-icon',html:'<span title="Punto de salida">●</span>',iconSize:[24,24],iconAnchor:[12,12]})}).addTo(map.current);
+    else startMarker.current.setLatLng(points[0]);
     const last=points.at(-1);
     const vehicle=data.vehicles.find(item=>item.id===active.vehicleId);
     const symbol=String(vehicle?.vehicle_type||'').toLowerCase().includes('moto')?'🏍️':'🚗';
-    marker.current=L.marker(last,{icon:L.divIcon({className:'moving-vehicle-icon',html:`<span class="vehicle-map-pin" title="Vehículo en movimiento"><i>${symbol}</i></span>`,iconSize:[48,48],iconAnchor:[24,24]})}).addTo(map.current);
+    const icon=L.divIcon({className:'moving-vehicle-icon',html:`<span class="vehicle-map-pin" title="Vehículo en movimiento"><i>${symbol}</i></span>`,iconSize:[48,48],iconAnchor:[24,24]});
+    if(!marker.current) marker.current=L.marker(last,{icon}).addTo(map.current);
+    else { marker.current.setIcon(icon); marker.current.setLatLng(last); }
     if(!manualMapView.current){
       automaticMapMove.current=true;
       if(points.length>1) map.current.fitBounds(L.latLngBounds(points),{padding:[70,55],maxZoom:14,animate:true,duration:.6});
@@ -377,7 +399,10 @@ function RouteMap({data,onUpdate}) {
     watcher.current=navigator.geolocation.watchPosition(position=>{
       const previous=record.current;
       if(!previous||previous.id!==tripId||!isTripOpen(previous))return;
-      const point={lat:position.coords.latitude,lng:position.coords.longitude,at:new Date().toISOString(),accuracy:Math.round(position.coords.accuracy)};
+      const timestamp=Number(position.timestamp || Date.now());
+      const point={lat:position.coords.latitude,lng:position.coords.longitude,at:new Date(timestamp).toISOString(),timestamp,accuracy:Math.round(position.coords.accuracy)};
+      const lastPoint=previous.routePoints?.at(-1);
+      if(!shouldKeepGpsPoint(lastPoint,point)) return;
       const next={...previous,routePoints:[...(previous.routePoints||[]),point]};
       record.current=next;
       onUpdate({ ...next, _routeTracking: true });
