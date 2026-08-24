@@ -2,3 +2,6 @@
 
 /* El vehículo ya se completa por la asignación del chofer. */
 .photo-capture .photo-card:first-child{display:none}
+
+/* Avisos visibles en Inicio cuando se aproxima o vence un mantenimiento. */
+.maintenance-alerts{margin:0 0 20px}.maintenance-alerts .section-head{margin:0 0 12px}.maintenance-alert-list{display:grid;gap:9px}.maintenance-alert{display:flex;gap:11px;align-items:flex-start;padding:12px 13px;border:1px solid;border-radius:10px}.maintenance-alert b{display:block;font-size:13px}.maintenance-alert p{margin:3px 0 0}.maintenance-alert.due{background:#fff2ee;border-color:#f0b9ae}.maintenance-alert.soon{background:#fff9e9;border-color:#efd58c}.maintenance-alert-icon{width:25px;height:25px;flex:0 0 25px;display:grid;place-items:center;border-radius:50%;font-weight:800}.maintenance-alert.due .maintenance-alert-icon{background:#b54646;color:#fff}.maintenance-alert.soon .maintenance-alert-icon{background:#c77b17;color:#fff}@media(max-width:700px){.maintenance-alerts .section-head{align-items:flex-start}.maintenance-alerts .text-button{padding:0}}
