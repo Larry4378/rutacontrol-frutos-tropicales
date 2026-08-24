@@ -88,10 +88,12 @@ const receiptInfo = text => {
   const totals = totalCandidates.map(value => Number(value.replace(',', '.'))).filter(value => value > 0);
   const total = totals.length ? Math.max(...totals) : NaN;
   const company = findLine(/(coesti|primax|repsol|petroperu|puma|pecsa|full|elizabeth|huertas|corporaci[oó]n|abastecedor|grifo|estaci[oó]n)/i);
+  const providerName = company.match(/\b(?:coesti(?:\s+s\.?a\.?)?|corporaci[oó]n(?:\s+hermanos\s+huertas)?(?:\s+s\.?c\.?r\.?l\.?)?|primax|repsol|petroper[uú]|puma|pecsa|grifo\s+elizabeth)\b/i)?.[0] || company;
   const station = findLine(/\b(e\/?s|eess|estaci[oó]n de servicio|grifo)\b/i);
-  const provider = [company.replace(/\s*[-–]?\s*r\.?u\.?c\.?\s*[:+]?\s*\d{8,11}.*/i, ''), station !== company ? station : ''].filter(Boolean).join(' · ').replace(/^(grifo|estaci[oó]n(?: de servicio)?)\s*[:.-]?\s*/i, '');
+  const provider = providerName.replace(/\s*[-–]?\s*r\.?u\.?c\.?\s*[:+]?\s*\d{8,11}.*/i, '').replace(/^(grifo|estaci[oó]n(?: de servicio)?)\s*[:.-]?\s*/i, '').replace(/^coesti\s+s\.?a\.?$/i, 'COESTI S.A.');
   const productLine = findLine(/(g-?premium|max-?d|diesel|gasohol|gasolina|biodiesel|gnv|glp)/i);
-  const product = productLine.match(/(?:g-?premium|max-?d\s+diesel(?:\s+b\d+)?(?:\s+s\d+)?(?:\s+uv)?|gasohol(?:\s+(?:regular|premium|super))?|gasolina(?:\s+\w+)?|diesel(?:\s+\w+)?|biodiesel|gnv|glp)/i)?.[0] || productLine;
+  const productRaw = productLine.match(/(?:g-?premium|max-?d\s+diesel(?:\s+b\d+)?(?:\s+s\d+)?(?:\s+uv)?|gasohol(?:\s+(?:regular|premium|super))?|gasolina(?:\s+\w+)?|diesel(?:\s+\w+)?|biodiesel|gnv|glp)/i)?.[0] || productLine;
+  const product = productRaw.replace(/\bdiesel\s+6([0-9])\b/i, 'DIESEL B$1');
   const gallonLine = findLine(/\b(gal(?:ones)?|gals?|gll|ugl|gl)\b/i);
   const gallonsBeforeUnit = gallonLine.match(/(\d{1,4}(?:[.,]\d{1,3})?)\s*(?:gal(?:ones)?|gals?|gll|ugl|gl)\b/i)?.[1];
   const gallonsAfterUnit = gallonLine.match(/(?:gal(?:ones)?|gals?|gll|ugl|gl)\s*[:.]?\s*(\d{1,4}(?:[.,]\d{1,3})?)/i)?.[1];
@@ -106,7 +108,8 @@ const receiptInfo = text => {
   const price = receiptNumber(productNumbers.length >= 3 && productNumbers.some(value => /[.,]/.test(value)) ? productNumbers.at(-2) : '');
   const odometerLine = findLine(/(kilo[a-z]{0,12}|od[oó]metro|\bodo\b|\bkm\s*:)/i);
   const odometer = receiptNumber(odometerLine.match(/[\d.,]{3,}/)?.[0]);
-  const documentType = findLine(/\b(factura(?: de venta)?|boleta|nota de despacho|ticket|vale)\b/i);
+  const documentTypeLine = findLine(/\b(factura(?: de venta)?|boleta|nota de despacho|ticket|vale)\b/i);
+  const documentType = documentTypeLine.match(/factura(?: de venta)?|boleta|nota de despacho|ticket|vale/i)?.[0] || '';
   const numberLine = findLine(/\b(?:n(?:[e°ºo]|ro|[úu]mero|umero)?)\s*[:.-]\s*[a-z0-9]/i);
   const documentNumber = lines.join(' ').match(/\b([A-Z]{1,4}\d{1,5}\s*-\s*\d{5,})\b/i)?.[1]?.replace(/\s/g, '')
     || numberLine.match(/([A-Z]{0,4}\d{1,5}\s*-?\s*\d{5,})/i)?.[1]?.replace(/\s/g, '')
@@ -125,9 +128,10 @@ const receiptInfo = text => {
   const plate = plateLine.match(/placa\s*:?\s*([A-Z0-9-]{5,12})/i)?.[1] || '';
   const driverLine = findLine(/\b(chofer|conductor)\b/i);
   const driver = driverLine.replace(/^.*?(?:chofer|conductor)\s*:?\s*/i, '');
-  const cardLine = findLine(/\btar\s*jeta\b/i);
-  const cardNumber = cardLine.match(/(?:tar\s*jeta)\s*:?\s*([0-9]{8,})/i)?.[1] || '';
-  const site = station || findLine(/(?:car\.?|av\.?|km\.?|sede|casma|piura|sullana|tambogrande)/i);
+  const cardLine = findLine(/\b(?:tar\s*jeta|ar\s*jeta|card)\b/i);
+  const cardNumber = cardLine.match(/(?:(?:tar|ar)\s*jeta|card)\s*:?\s*([0-9]{8,})/i)?.[1] || '';
+  const siteRaw = station || findLine(/(?:car\.?|av\.?|km\.?|sede|casma|piura|sullana|tambogrande)/i);
+  const site = /e\/?s\s+l[ae]sha/i.test(siteRaw) ? 'E/S Casma' : siteRaw;
   const customer = valueAfterLabel(/.*?(?:raz[óo]n\s+social|raz\.?\s*soc\.?)/i);
   const address = valueAfterLabel(/.*?(?:direcc(?:i[oó]n)?|domicilio)/i);
   const payment = valueAfterLabel(/.*?(?:forma\s+de\s+pago|pago)/i);
@@ -157,7 +161,8 @@ const receiptInfo = text => {
     if (!match) return items;
     const label = match[1].replace(/\s+/g, ' ').trim();
     const value = match[2].trim();
-    if (!value || standardLabels.test(label) || /^(?:n[°ºo]?|nro|numero|número|ne|raz\.?\s*(?:soc|suc)\.?|direcc|tar\s*jeta|kilo[a-z]*|placa|ruc|total|importe|monto|cantidad|producto|coesti.*ruc)$/i.test(label)) return items;
+    const safeExtraLabel = /^(?:op(?:eraci[oó]n)?\s*gravadas?|sub\s*total|igv|descuento|vuelto|autorizaci[oó]n|orden(?:\s+de\s+compra)?|c[oó]digo(?:\s+de\s+operaci[oó]n)?|serie|surtidor)$/i;
+    if (!value || !safeExtraLabel.test(label) || standardLabels.test(label)) return items;
     const safeKey = `receiptExtra_${label.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '_')}`;
     if (!items.some(detail => detail.key === safeKey)) items.push({ key: safeKey, label, value });
     return items;
