@@ -419,6 +419,30 @@ function App() {
     window.addEventListener('focus', loadMaintenance);
     return () => { active = false; window.removeEventListener('focus', loadMaintenance); };
   }, [session, profileReady, profile?.id]);
+  useEffect(() => {
+    if (!session || !profileReady || !profile) return;
+    let active = true;
+    const loadFuel = async () => {
+      let request = supabase
+        .from('fuel_records')
+        .select('id,vehicle_id,created_by,provider,amount,odometer_km,registered_at,fuel_product,gallons,review_status,receipt_path,receipt_details')
+        .order('registered_at', { ascending: false });
+      if (profile.role === 'driver') request = request.eq('created_by', profile.id || session.user.id);
+      const { data: rows, error: loadError } = await request;
+      if (!active) return;
+      if (loadError) return setError(`No se pudieron cargar los comprobantes: ${loadError.message}`);
+      setData(previous => ({ ...previous, fuels: (rows || []).map(row => ({
+        id: row.id, vehicleId: row.vehicle_id, createdBy: row.created_by,
+        provider: row.provider, product: row.fuel_product, gallons: row.gallons,
+        cost: row.amount, km: row.odometer_km, reviewStatus: row.review_status,
+        receiptPath: row.receipt_path, documentDetails: row.receipt_details || [],
+        date: row.registered_at?.slice(0, 10), time: row.registered_at?.slice(11, 19), _saved: true,
+      })) }));
+    };
+    loadFuel();
+    window.addEventListener('focus', loadFuel);
+    return () => { active = false; window.removeEventListener('focus', loadFuel); };
+  }, [session, profileReady, profile?.id, profile?.role]);
   const loadUsers = async () => {
     if (!session) {
       setProfile(null);
@@ -549,6 +573,44 @@ function App() {
       setData(previous => ({ ...previous, maintenance: previous.maintenance.some(item => item.id === saved.id) ? previous.maintenance.map(item => item.id === saved.id ? savedRecord : item) : [...previous.maintenance, savedRecord] }));
       return true;
     }
+    if (collection === 'fuels') {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { alert('Debes iniciar sesión para enviar el comprobante.'); return false; }
+      if (!record.vehicleId) { alert('No se pudo identificar el vehículo del comprobante.'); return false; }
+      const recordId = record.id || id();
+      let receiptPath = record.receiptPath || null;
+      if (record.receiptFile) {
+        const extension = (record.receiptFile.name?.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+        receiptPath = `fuel/${user.id}/${recordId}/${crypto.randomUUID()}.${extension}`;
+        const { error: uploadError } = await supabase.storage.from('vehicle-evidence').upload(receiptPath, record.receiptFile, {
+          contentType: record.receiptFile.type || 'image/jpeg', upsert: false,
+        });
+        if (uploadError) { alert(`No se pudo guardar la foto del comprobante: ${uploadError.message}`); return false; }
+      }
+      const toNumberOrNull = value => value === '' || value === null || value === undefined || !Number.isFinite(Number(value)) ? null : Number(value);
+      const payload = {
+        id: recordId, vehicle_id: record.vehicleId, created_by: record.createdBy || user.id,
+        provider: record.provider || null, amount: toNumberOrNull(record.cost), odometer_km: toNumberOrNull(record.km),
+        fuel_product: record.product || null, gallons: toNumberOrNull(record.gallons ?? record.liters),
+        review_status: record.reviewStatus || 'Pendiente de revisión', receipt_path: receiptPath,
+        receipt_details: record.documentDetails || [],
+      };
+      const request = record._saved
+        ? supabase.from('fuel_records').update(payload).eq('id', recordId).select().single()
+        : supabase.from('fuel_records').insert(payload).select().single();
+      const { data: saved, error: saveError } = await request;
+      if (saveError) { alert(`No se pudo guardar el comprobante: ${saveError.message}`); return false; }
+      const savedRecord = {
+        id: saved.id, vehicleId: saved.vehicle_id, createdBy: saved.created_by, provider: saved.provider,
+        product: saved.fuel_product, gallons: saved.gallons, cost: saved.amount, km: saved.odometer_km,
+        reviewStatus: saved.review_status, receiptPath: saved.receipt_path, documentDetails: saved.receipt_details || [],
+        date: saved.registered_at?.slice(0, 10) || today(), time: saved.registered_at?.slice(11, 19) || now(), _saved: true,
+      };
+      setData(previous => ({ ...previous, fuels: previous.fuels.some(item => item.id === saved.id)
+        ? previous.fuels.map(item => item.id === saved.id ? savedRecord : item)
+        : [savedRecord, ...previous.fuels] }));
+      return true;
+    }
     if (collection !== 'vehicles') {
       setData(previous => ({ ...previous, [collection]: previous[collection].some(x => x.id === record.id) ? previous[collection].map(x => x.id === record.id ? record : x) : [...previous[collection], { ...record, id: record.id || id() }] }));
       return true;
@@ -572,6 +634,7 @@ function App() {
     } else if (!confirm('¿Eliminar este registro?')) return;
     if (collection === 'vehicles') { const { error: deleteError } = await supabase.from('vehicles').delete().eq('id', recordId); if (deleteError) return alert(`No se pudo eliminar el vehículo: ${deleteError.message}`); }
     if (collection === 'maintenance') { const { error: deleteError } = await supabase.from('maintenance_records').delete().eq('id', recordId); if (deleteError) return alert(`No se pudo eliminar el mantenimiento: ${deleteError.message}`); }
+    if (collection === 'fuels') { const { error: deleteError } = await supabase.from('fuel_records').delete().eq('id', recordId); if (deleteError) return alert(`No se pudo eliminar el comprobante: ${deleteError.message}`); }
     setData(previous => ({ ...previous, [collection]: previous[collection].filter(x => x.id !== recordId) }));
   };
   const tripsKm = data.trips.reduce((total, trip) => total + (trip.endKm ? Math.max(0, Number(trip.endKm) - Number(trip.startKm)) : 0), 0);
@@ -593,14 +656,14 @@ function App() {
       {view === 'dashboard' && <Dashboard data={data} profile={profile} driverPreview={driverPreview} km={tripsKm} permissions={profile?.role === 'driver' && !driverPreview ? driverPermissions : {departure:true,arrival:true}} driverName={profile?.role === 'driver' ? profile.full_name : ''} onGo={setView} onDeparture={() => setModal({type:'quickDeparture'})} onReturn={() => setModal({type:'quickReturn'})} onTripUpdate={record => update('trips',record)} tripForm={modal?.type === 'quickDeparture' ? <DepartureGpsRequired data={data} driverName={profile?.role === 'driver' ? profile.full_name : ''} driverId={profile?.role === 'driver' && !driverPreview ? profile.id : ''} assignedVehicleId={profile?.role === 'driver' && !driverPreview ? profile.permissions?.assignedVehicleId : ''} assignedVehicleLabel={profile?.role === 'driver' && !driverPreview ? profile.permissions?.assignedVehicleLabel : ''} onClose={() => setModal(null)} onSave={async record => { const saved={...record,...(window.departureEvidence||{}),departureDate:today(),departureTime:now()}; const registered=await update('trips',saved); if(registered){setModal(null);setSuccessMessage('Salida registrada correctamente.');} return registered; }} /> : modal?.type === 'quickReturn' ? <ArrivalSimple data={data} driverName={profile?.role === 'driver' && !driverPreview ? profile.full_name : ''} driverId={profile?.role === 'driver' && !driverPreview ? profile.id : ''} onClose={() => setModal(null)} onSave={async record => { const registered=await update('trips',{...record,returnDate:today(),returnTime:now()}); if(registered){setModal(null);setSuccessMessage('Llegada registrada correctamente.');} return registered; }} /> : null} />}
       {view === 'trips' && <List title="Historial de recorridos" text="Consulta, filtra y edita las salidas y llegadas registradas." hideAdd><Trips data={data} drivers={drivers} profile={profile} onEdit={record => setModal({type:'trip',record})} onDelete={record => remove('trips',record.id)} /></List>}
       {view === 'maintenance' && <List title="Mantenimiento" text="Afinamiento, aceite, frenos, neumáticos y revisión técnica." onAdd={() => setModal({type:'maintenance'})}><Maintenance data={data} onEdit={record => setModal({type:'maintenance',record})} onDelete={record => remove('maintenance',record.id)} /></List>}
-      {view === 'fuel' && <List title="Control de combustible" text="Registra litros, costo, kilometraje y comprobante." onAdd={() => setModal({type:'fuel'})}><Fuel data={data} onEdit={record => setModal({type:'fuel',record})} onDelete={record => remove('fuels',record.id)} /></List>}
+      {view === 'fuel' && <List title="Control de combustible" text={profile?.role === 'admin' && !driverPreview ? 'Revisa los comprobantes enviados por toda la flota.' : 'Envía tu comprobante y consulta los que ya registraste.'} onAdd={() => setModal({type:'fuel'})}><Fuel data={data} drivers={drivers} profile={profile} isAdmin={profile?.role === 'admin' && !driverPreview} onEdit={record => setModal({type:'fuel',record})} onDelete={record => remove('fuels',record.id)} /></List>}
       {view === 'vehicles' && <List title="Vehículos" text="Administra placa, odómetro y estado." onAdd={() => setModal({type:'vehicle'})}><Vehicles data={data} onEdit={record => setModal({type:'vehicle',record})} onDelete={record => remove('vehicles',record)} /></List>}
       {view === 'reports' && <Reports data={data} />}
       {view === 'users' && <UsersPage drivers={drivers} vehicles={data.vehicles} onChanged={loadUsers}/>}
     </main>
     {modal?.type === 'maintenance' && <MaintenanceModal record={modal.record} data={data} assignedVehicleId={profile?.role === 'driver' && !driverPreview ? profile.permissions?.assignedVehicleId : ''} onClose={() => setModal(null)} onSave={async record => { if (await update('maintenance',record)) setModal(null); }} />}
     {modal?.type === 'vehicle' && <VehicleModal record={modal.record} onClose={() => setModal(null)} onSave={async record => { if (await update('vehicles', record)) setModal(null); }} />}
-    {modal?.type === 'fuel' && <FuelModalReceipt record={modal.record} data={data} assignedVehicleId={profile?.role === 'driver' && !driverPreview ? profile.permissions?.assignedVehicleId : ''} onClose={() => setModal(null)} onSave={record => { update('fuels',{...record,date:record.date||today(),time:record.time||now()}); setModal(null); }} />}
+    {modal?.type === 'fuel' && <FuelModalReceipt record={modal.record} data={data} assignedVehicleId={profile?.role === 'driver' && !driverPreview ? profile.permissions?.assignedVehicleId : ''} isAdmin={profile?.role === 'admin' && !driverPreview} onClose={() => setModal(null)} onSave={async record => { const saved = await update('fuels', record); if (saved) { setModal(null); setSuccessMessage('Comprobante enviado correctamente.'); } return saved; }} />}
     {modal && !['quickDeparture','quickReturn','maintenance','vehicle','fuel'].includes(modal.type) && <RecordModal type={modal.type} record={modal.record} data={data} onClose={() => setModal(null)} onSave={(collection, record) => { update(collection,record); setModal(null); }} />}
     {successMessage && <dialog open className="success-dialog" aria-label="Registro confirmado"><div className="success-dialog-content"><span className="success-check" aria-hidden="true">✓</span><h2>Registro confirmado</h2><p>{successMessage}</p><button type="button" className="primary" onClick={() => setSuccessMessage('')}>Entendido</button></div></dialog>}
   </>;
@@ -816,7 +879,40 @@ function Trips({data,drivers=[],profile,onEdit,onDelete}) {
   </>;
 }
 function Maintenance({data,onEdit,onDelete}) { return <Table heads={['Fecha','Vehículo','Servicio','Próxima fecha / km','']} >{data.maintenance.slice().reverse().map(x=><tr key={x.id}><td>{date(x.date)}</td><td>{vehicleName(data,x.vehicleId)}</td><td>{x.type}</td><td>{x.nextDate || '—'} {x.nextKm ? ` / ${x.nextKm} km` : ''}</td><td><Actions onEdit={()=>onEdit(x)} onDelete={()=>onDelete(x)}/></td></tr>)}</Table>; }
-function Fuel({data,onEdit,onDelete}) { return <Table heads={['Fecha','Vehículo','Grifo / producto','Galones','Costo','Km','']} >{data.fuels.slice().reverse().map(x=><tr key={x.id}><td>{date(x.date)}</td><td>{vehicleName(data,x.vehicleId)}</td><td><b>{x.provider || '—'}</b>{x.product && <small className="fuel-product-cell">{x.product}</small>}</td><td>{x.gallons ?? x.liters ?? '—'}</td><td>{money(x.cost)}</td><td>{x.km || '—'}</td><td><Actions onEdit={()=>onEdit(x)} onDelete={()=>onDelete(x)}/></td></tr>)}</Table>; }
+function Fuel({data,drivers=[],profile,isAdmin=false,onEdit,onDelete}) {
+  const [receipt,setReceipt] = useState(null);
+  const openReceipt = async record => {
+    if (!record.receiptPath) return alert('Este comprobante no tiene una foto disponible.');
+    setReceipt({loading:true, record});
+    const { data: file, error } = await supabase.storage.from('vehicle-evidence').download(record.receiptPath);
+    if (error) return setReceipt({error:'No se pudo abrir la foto del comprobante.', record});
+    setReceipt({url:URL.createObjectURL(file), record});
+  };
+  const closeReceipt = () => {
+    if (receipt?.url) URL.revokeObjectURL(receipt.url);
+    setReceipt(null);
+  };
+  const rows = data.fuels.slice().sort((a,b) => `${b.date||''}${b.time||''}`.localeCompare(`${a.date||''}${a.time||''}`));
+  const driverName = record => {
+    if (String(record.createdBy || '') === String(profile?.id || '')) return profile?.full_name || 'Mi comprobante';
+    return drivers.find(driver => String(driver.id) === String(record.createdBy || ''))?.full_name || 'Chofer';
+  };
+  return <><Table heads={[...(isAdmin ? ['Chofer'] : []),'Fecha','Vehículo','Comprobante','Estado','']}>
+    {rows.map(record => <tr key={record.id}>
+      {isAdmin && <td>{driverName(record)}</td>}
+      <td>{date(record.date)}<small className="fuel-product-cell">{record.time || ''}</small></td>
+      <td>{vehicleName(data,record.vehicleId)}</td>
+      <td><b>{record.provider || 'Comprobante enviado'}</b>{record.product && <small className="fuel-product-cell">{record.product}</small>}{record.receiptPath && <button type="button" className="text-button" onClick={()=>openReceipt(record)}>Ver comprobante</button>}</td>
+      <td><span className={`badge ${record.reviewStatus === 'Pendiente de revisión' ? 'warn' : 'ok'}`}>{record.reviewStatus || 'Pendiente de revisión'}</span></td>
+      <td>{isAdmin && <Actions onEdit={()=>onEdit(record)} onDelete={()=>onDelete(record)}/>}</td>
+    </tr>)}
+  </Table>
+  {rows.length===0 && <p className="empty-message">Aún no hay comprobantes enviados.</p>}
+  {receipt?.loading && <p className="evidence-loading">Abriendo comprobante…</p>}
+  {receipt?.error && <p className="sync-error">{receipt.error}</p>}
+  {receipt?.url && <dialog open className="odometer-photo-dialog" aria-label="Foto del comprobante"><div className="odometer-photo-head"><div><h2>Comprobante de combustible</h2><p>{vehicleName(data,receipt.record.vehicleId)} · {driverName(receipt.record)}</p></div><button type="button" className="close" aria-label="Cerrar comprobante" onClick={closeReceipt}>×</button></div><img src={receipt.url} alt="Comprobante de combustible"/></dialog>}
+  </>;
+}
 function Expenses({data,onEdit,onDelete}) { return <Table heads={['Fecha','Vehículo','Tipo','Detalle','Proveedor','Costo','']} >{data.expenses.slice().reverse().map(x=><tr key={x.id}><td>{date(x.date)}</td><td>{vehicleName(data,x.vehicleId)}</td><td>{x.type}</td><td>{x.detail}</td><td>{x.provider}</td><td>{money(x.cost)}</td><td><Actions onEdit={()=>onEdit(x)} onDelete={()=>onDelete(x)}/></td></tr>)}</Table>; }
 function Vehicles({data,onEdit,onDelete}) { return <div className="vehicle-grid">{data.vehicles.map(v=>{const inRoute=data.trips.some(t=>t.vehicleId===v.id&&!t.endKm);const status=inRoute?'En ruta':(v.status||'Disponible');return <article className="vehicle-card" key={v.id}><div className="card-top"><span className={`badge ${inRoute?'warn':'ok'}`}>{status}</span><VehicleActions onEdit={()=>onEdit(v)} onDelete={()=>onDelete(v)}/></div><div className="vehicle-plate">{v.plate}</div><p>{v.vehicle_type==='Camioneta'?'Carro':(v.vehicle_type || 'Carro')} · {v.brand} {v.model}</p>{v.driver&&<div className="info-line">Chofer: {v.driver}</div>}<div className="info-line">Odómetro actual</div><h2>{currentKm(data,v).toLocaleString('es-PE')} km</h2></article>})}</div>; }
 function Reports({data}) { const download=()=>{const rows=[['Tipo','Fecha','Vehículo','Detalle','Costo'],...data.trips.map(t=>['Recorrido',t.departureDate,vehicleName(data,t.vehicleId),`${t.origin} - ${t.destination}`,t.endKm?Number(t.endKm)-Number(t.startKm):'']),...data.fuels.map(x=>['Combustible',x.date,vehicleName(data,x.vehicleId),`${x.product || 'Combustible'} · ${x.gallons ?? x.liters ?? '—'} galones`,x.cost]),...data.expenses.map(x=>['Gasto',x.date,vehicleName(data,x.vehicleId),`${x.type}: ${x.detail}`,x.cost])];const blob=new Blob(['\ufeff'+rows.map(r=>r.map(v=>`"${String(v||'').replaceAll('"','""')}"`).join(',')).join('\n')],{type:'text/csv'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='RutaControl.csv';a.click();};return <section><div className="grid-two"><article className="panel"><h2>Exportar a Excel</h2><p>Descarga un CSV compatible con Excel.</p><br/><button className="primary" onClick={download}>⇩ Descargar Excel</button></article><article className="panel"><h2>Exportar a PDF</h2><p>Usa la impresión del navegador para guardar el reporte en PDF.</p><br/><button className="primary" onClick={()=>print()}>⇩ Guardar como PDF</button></article></div></section>; }
@@ -909,132 +1005,62 @@ function QuickDeparture({data,onClose,onSave}) { const [form,setForm]=useState({
 function QuickReturn({data,onClose,onSave}) { const active=data.trips.filter(t=>!t.endKm); const [form,setForm]=useState({returnDate:today(),returnTime:now()}); const trip=active.find(t=>t.id===form.tripId); const change=(key,value)=>setForm(x=>({...x,[key]:value})); const submit=e=>{e.preventDefault();if(Number(form.endKm)<Number(trip.startKm))return alert('El kilometraje final no puede ser menor al de salida.');onSave({...trip,endKm:form.endKm,endPhoto:form.endPhoto||trip.endPhoto,returnDate:form.returnDate,returnTime:form.returnTime,status:'Finalizado'});}; return <dialog open><form onSubmit={submit}><div className="modal-head"><div><h2>Registrar retorno</h2><p>Completa el recorrido que regresó a la empresa.</p></div><button type="button" className="close" onClick={onClose}>×</button></div>{active.length===0?<p className="empty-message">No hay vehículos con un recorrido pendiente de retorno.</p>:<><div className="form-grid"><div className="field full"><label>Recorrido en ruta</label><select required value={form.tripId||''} onChange={e=>change('tripId',e.target.value)}><option value="">Seleccionar recorrido</option>{active.map(t=><option key={t.id} value={t.id}>{vehicleName(data,t.vehicleId)} · {t.driver} · {t.origin} → {t.destination}</option>)}</select></div><div className="field"><label>Fecha de retorno</label><input required type="date" value={form.returnDate} onChange={e=>change('returnDate',e.target.value)}/></div><div className="field"><label>Hora de retorno</label><input required type="time" value={form.returnTime} onChange={e=>change('returnTime',e.target.value)}/></div><div className="field"><label>Kilometraje de retorno</label><input required type="number" min={trip?.startKm||0} value={form.endKm||''} onChange={e=>change('endKm',e.target.value)}/></div><div className="field"><label>Foto del odómetro</label><PhotoSource onChange={e=>change('endPhoto',e.target.files?.[0]?.name||'Foto capturada')}/></div></div><div className="form-actions"><button type="button" className="secondary" onClick={onClose}>Cancelar</button><button className="primary">Finalizar recorrido</button></div></>}</form></dialog>; }
 function LegacyVehicleModal({record={},onClose,onSave}){const [form,setForm]=useState(record);const change=(k,v)=>setForm(x=>({...x,[k]:v}));const submit=e=>{e.preventDefault();onSave({...form,id:form.id||id()});};return <dialog open className="maintenance-modal"><form onSubmit={submit}><div className="maintenance-hero"><div><p className="eyebrow">FRUTOS TROPICALES EXPORT. PERÚ</p><h2>{record.id?'Editar vehículo':'Registrar vehículo'}</h2><p>Agrega un vehículo a la flota de forma rápida.</p></div><i className="hero-mango"/></div><button type="button" className="close maintenance-close" onClick={onClose}>×</button><div className="form-grid maintenance-grid-form"><div className="field"><label>Placa</label><input required value={form.plate||''} onChange={e=>change('plate',e.target.value)}/></div><div className="field"><label>Marca</label><input required value={form.brand||''} onChange={e=>change('brand',e.target.value)}/></div><div className="field"><label>Modelo</label><input required value={form.model||''} onChange={e=>change('model',e.target.value)}/></div><div className="field"><label>Año</label><input required type="number" value={form.year||''} onChange={e=>change('year',e.target.value)}/></div><div className="field"><label>Kilometraje inicial</label><input required type="number" min="0" value={form.km||''} onChange={e=>change('km',e.target.value)}/></div><div className="field"><label>Estado</label><select value={form.status||'Disponible'} onChange={e=>change('status',e.target.value)}><option>Disponible</option><option>En mantenimiento</option><option>Fuera de servicio</option></select></div></div><div className="form-actions"><button type="button" className="secondary" onClick={onClose}>Cancelar</button><button className="primary">Guardar vehículo</button></div></form></dialog>;}
 function FuelModalFast({record={},data,assignedVehicleId='',onClose,onSave}) { const [form,setForm]=useState(()=>({...record,vehicleId:record.vehicleId||assignedVehicleId||''}));const [status,setStatus]=useState('');const change=(k,v)=>setForm(x=>({...x,[k]:v}));const scan=async(file,type)=>{if(!file)return;setStatus('Leyendo fotografía…');try{const w=await createWorker('eng');const {data:{text}}=await w.recognize(file);await w.terminate();if(type==='receipt'){const info=receiptInfo(text);change('receipt',file.name);if(Number.isFinite(info.total))change('cost',info.total.toFixed(2));if(info.provider)change('provider',info.provider);setStatus(`${Number.isFinite(info.total)?`Monto final: S/ ${info.total.toFixed(2)}. `:''}${info.provider?`Grifo: ${info.provider}.`:''}`||'No se reconocieron monto ni grifo.');}else{const km=Math.max(...(text.match(/\b\d{3,7}(?:[.,]\d{3})*\b/g)||[]).map(x=>Number(x.replace(/\D/g,''))).filter(Boolean));change('kmPhoto',file.name);if(Number.isFinite(km)){change('km',String(km));setStatus(`Kilometraje reconocido: ${km.toLocaleString('es-PE')} km.`)}else setStatus('No se pudo leer el odómetro.');}}catch{setStatus('No se pudo leer la fotografía.');}};const submit=e=>{e.preventDefault();onSave({...form,id:form.id||id()});};return <dialog open className="quick-departure-modal"><form onSubmit={submit}><div className="modal-head"><div><p className="eyebrow">COMBUSTIBLE</p><h2>Registrar abastecimiento</h2></div><button type="button" className="close" onClick={onClose}>×</button></div><div className="form-grid"><div className="field"><label>{assignedVehicleId?'Vehículo asignado (puedes cambiarlo)':'Vehículo'}</label><select required value={form.vehicleId||''} onChange={e=>change('vehicleId',e.target.value)}><option value="">Seleccionar vehículo</option>{data.vehicles.map(v=><option key={v.id} value={v.id}>{v.plate} · {v.brand}</option>)}</select></div><div className="field"><label>Fecha</label><input required type="date" value={form.date||today()} readOnly/></div><div className="field"><label>Grifo / proveedor</label><input required value={form.provider||''} onChange={e=>change('provider',e.target.value)}/></div><div className="field"><label>Monto final / costo total S/</label><input required type="number" min="0" step="0.01" value={form.cost||''} onChange={e=>change('cost',e.target.value)}/></div><div className="field full"><label>Foto del odómetro</label><input required type="file" accept="image/*" onChange={e=>scan(e.target.files?.[0],'km')}/></div><div className="field full"><label>Foto del comprobante</label><PhotoSource onChange={e=>scan(e.target.files?.[0],'receipt')}/></div></div>{status&&<p className="ocr-status">{status}</p>}<div className="form-actions"><button type="button" className="secondary" onClick={onClose}>Cancelar</button><button className="primary">Guardar combustible</button></div></form></dialog>; }
-function FuelModalReceipt({ record = {}, data, assignedVehicleId = '', onClose, onSave }) {
+function FuelModalReceipt({ record = {}, data, assignedVehicleId = '', isAdmin = false, onClose, onSave }) {
   const [form, setForm] = useState(() => ({ ...record, vehicleId: record.vehicleId || assignedVehicleId || '' }));
+  const [receiptFile, setReceiptFile] = useState(null);
   const [status, setStatus] = useState('');
-  const [hasReceipt, setHasReceipt] = useState(Boolean(record.receipt));
+  const [saving, setSaving] = useState(false);
   const change = (key, value) => setForm(current => ({ ...current, [key]: value }));
-  const changeDetail = (key, value) => setForm(current => ({
-    ...current,
-    [key]: value,
-    documentDetails: (current.documentDetails || []).map(detail => detail.key === key ? { ...detail, value } : detail),
-  }));
-  const isCoesti = /\bcoesti\b/i.test(form.provider || '');
-  const isHuertas = /\bhuertas\b/i.test(form.provider || '');
-  const receiptFields = isCoesti ? [
-    { key: 'provider', label: 'Proveedor', source: 'form', required: true, placeholder: 'Ejemplo: COESTI S.A.' },
-    { key: 'receiptSite', label: 'Lugar / sede', placeholder: 'Ejemplo: E/S Casma' },
-    { key: 'receiptNumber', label: 'Número de vale', placeholder: 'Ejemplo: U254-00019019' },
-    { key: 'receiptIssuedAt', label: 'Fecha de emisión', placeholder: 'Ejemplo: 17/08/2026 17:16' },
-    { key: 'gallons', label: 'Cantidad de galones abastecidos', source: 'form', type: 'number', required: true, placeholder: 'Ejemplo: 14.641' },
-    { key: 'product', label: 'Producto (gasolina o petróleo)', source: 'form', placeholder: 'Ejemplo: Diesel B5 o Gasohol' },
-    { key: 'receiptPlate', label: 'Placa indicada', placeholder: 'Se completa desde el comprobante' },
-    { key: 'cardNumber', label: 'Número de tarjeta', placeholder: 'Se completa desde el comprobante' },
-    { key: 'km', label: 'Kilometraje', source: 'form', type: 'number', placeholder: 'Se completa desde el comprobante' },
-  ] : isHuertas ? [
-    { key: 'provider', label: 'Proveedor', source: 'form', required: true, placeholder: 'Corporación Hermanos Huertas' },
-    { key: 'receiptSite', label: 'Lugar / sede', placeholder: 'Dirección del establecimiento' },
-    { key: 'receiptNumber', label: 'Número de nota de despacho', placeholder: 'Ejemplo: 0040089652' },
-    { key: 'receiptIssuedAt', label: 'Fecha de emisión', placeholder: 'Ejemplo: 24/08/2026 08:23' },
-    { key: 'receiptDriver', label: 'Chofer indicado', placeholder: 'Nombre del chofer' },
-    { key: 'receiptPlate', label: 'Placa indicada', placeholder: 'Placa del vehículo' },
-    { key: 'product', label: 'Producto', source: 'form', placeholder: 'Ejemplo: Gasohol regular' },
-    { key: 'gallons', label: 'Cantidad de galones abastecidos', source: 'form', type: 'number', required: true, placeholder: 'Ejemplo: 1.168' },
-    { key: 'unitPrice', label: 'Precio por galón S/', type: 'number', placeholder: 'Ejemplo: 21.20' },
-    { key: 'cost', label: 'Monto total S/', source: 'form', type: 'number', placeholder: 'Ejemplo: 24.76' },
-    { key: 'km', label: 'Kilometraje', source: 'form', type: 'number', placeholder: 'Se completa desde el comprobante' },
-    { key: 'receiptSide', label: 'Lado / isla', placeholder: 'Si figura en el comprobante' },
-  ] : [
-    { key: 'provider', label: 'Proveedor', source: 'form', required: true, placeholder: 'Nombre del proveedor' },
-    { key: 'receiptSite', label: 'Lugar / sede', placeholder: 'Lugar de abastecimiento' },
-    { key: 'receiptNumber', label: 'Número del comprobante', placeholder: 'Número o vale' },
-    { key: 'receiptIssuedAt', label: 'Fecha de emisión', placeholder: 'Fecha del comprobante' },
-    { key: 'product', label: 'Producto', source: 'form', placeholder: 'Gasolina o petróleo' },
-    { key: 'gallons', label: 'Cantidad de galones abastecidos', source: 'form', type: 'number', required: true, placeholder: 'Cantidad de galones' },
-    { key: 'cost', label: 'Monto total S/', source: 'form', type: 'number', placeholder: 'Monto total' },
-    { key: 'km', label: 'Kilometraje', source: 'form', type: 'number', placeholder: 'Kilometraje indicado' },
-  ];
-  const receiptValue = field => field.key === 'gallons' ? (form.gallons ?? form.liters ?? '') : (form[field.key] || '');
-  const changeReceiptField = (field, value) => field.source === 'form' ? change(field.key, value) : changeDetail(field.key, value);
-
   const scanReceipt = async file => {
     if (!file) return;
+    setReceiptFile(file);
     change('receipt', file.name);
-    setHasReceipt(true);
-    setStatus('Leyendo los datos del comprobante…');
+    setStatus('Foto lista para enviar.');
     try {
       const readings = await readReceiptWithOcr(file);
       const info = mergeReceiptInfo(readings);
-      if (info.provider) change('provider', info.provider);
-      if (info.product) change('product', info.product);
-      if (Number.isFinite(info.gallons) && info.gallons > 0 && info.gallons < 1000) change('gallons', String(info.gallons));
-      if (Number.isFinite(info.odometer) && info.odometer > 0) change('km', String(info.odometer));
-      if (Number.isFinite(info.total)) change('cost', info.total.toFixed(2));
-      if (info.documentDate) change('date', info.documentDate);
       const exactVehicle = data.vehicles.find(vehicle => plateKey(vehicle.plate) === plateKey(info.plate));
       const approximateVehicle = !exactVehicle && info.plate ? findVehicleFromPlateOcr(info.plate, data.vehicles)?.vehicle : null;
       const matchedVehicle = exactVehicle || approximateVehicle;
-      const details = (info.details || []).map(detail => detail.key === 'receiptPlate' && matchedVehicle
-        ? { ...detail, value: matchedVehicle.plate }
-        : detail);
-      change('documentDetails', details);
-      details.forEach(detail => change(detail.key, detail.value));
-      if (matchedVehicle) change('vehicleId', matchedVehicle.id);
-      const pendingFields = [!Number.isFinite(info.gallons) && 'galones'].filter(Boolean);
-      setStatus(info.hasUsefulData
-        ? `Comprobante leído. Revisa los campos antes de guardar.${pendingFields.length ? ` No se pudo confirmar: ${pendingFields.join(' y ')}.` : ''}`
-        : 'No se pudo reconocer el comprobante. Completa los campos manualmente.');
+      setForm(current => ({
+        ...current,
+        provider: info.provider || current.provider || null,
+        product: info.product || current.product || null,
+        gallons: Number.isFinite(info.gallons) && info.gallons > 0 ? String(info.gallons) : current.gallons || null,
+        km: Number.isFinite(info.odometer) && info.odometer > 0 ? String(info.odometer) : current.km || null,
+        cost: Number.isFinite(info.total) ? info.total.toFixed(2) : current.cost || null,
+        vehicleId: matchedVehicle?.id || current.vehicleId,
+        documentDetails: info.details || [],
+        reviewStatus: info.hasUsefulData ? 'Datos detectados' : 'Pendiente de revisión',
+      }));
     } catch {
-      setStatus('No se pudo leer el comprobante. Completa los datos manualmente.');
+      change('reviewStatus', 'Pendiente de revisión');
     }
   };
-
-  const submit = event => {
+  const submit = async event => {
     event.preventDefault();
-    if (!hasReceipt) return alert('Primero toma una foto del comprobante para completar el abastecimiento.');
-    onSave({ ...form, id: form.id || id(), liters: form.gallons ?? form.liters ?? '' });
+    if (!receiptFile && !form.receiptPath) return alert('Primero toma una foto clara del comprobante.');
+    if (!form.vehicleId) return alert('Selecciona el vehículo antes de enviar el comprobante.');
+    setSaving(true);
+    const saved = await onSave({ ...form, id: form.id || id(), receiptFile, reviewStatus: form.reviewStatus || 'Pendiente de revisión' });
+    if (!saved) setSaving(false);
   };
-
   return <dialog open className="quick-departure-modal fuel-modal">
     <form onSubmit={submit}>
-      <div className="modal-head">
-        <div><p className="eyebrow">COMBUSTIBLE</p><h2>Registrar abastecimiento</h2></div>
-        <button type="button" className="close" onClick={onClose}>×</button>
-      </div>
-
+      <div className="modal-head"><div><p className="eyebrow">COMBUSTIBLE</p><h2>Enviar comprobante</h2></div><button type="button" className="close" onClick={onClose}>×</button></div>
       <section className="fuel-capture-start">
-        <p className="eyebrow">PASO 1 · COMPROBANTE</p>
-        <h3>Toma la foto del comprobante</h3>
-        <p>La aplicación reconocerá el formato y abrirá únicamente los datos encontrados.</p>
-        <PhotoSource onChange={event => scanReceipt(event.target.files?.[0])} />
+        <p className="eyebrow">COMPROBANTE</p><h3>Toma una foto clara</h3>
+        <p>Solo envía la imagen. La oficina revisará la información del comprobante.</p>
+        <label className="evidence-camera">◉ Tomar foto<input required={!form.receiptPath} type="file" accept="image/*" capture="environment" onChange={event => scanReceipt(event.target.files?.[0])}/></label>
+        {receiptFile && <small className="photo-loaded">✓ Foto lista: {receiptFile.name}</small>}
       </section>
-
-      {hasReceipt && <><div className="form-grid fuel-basics">
-        <div className="field">
-          <label>{assignedVehicleId ? 'Vehículo asignado (puedes cambiarlo)' : 'Vehículo reconocido'}</label>
-          <select required value={form.vehicleId || ''} onChange={event => change('vehicleId', event.target.value)}>
-            <option value="">Seleccionar vehículo</option>
-            {data.vehicles.map(vehicle => <option key={vehicle.id} value={vehicle.id}>{vehicle.plate} · {vehicle.brand}</option>)}
-          </select>
-        </div>
-        <div className="field"><label>Fecha</label><input required type="date" value={form.date || today()} readOnly /></div>
+      <div className="form-grid fuel-basics">
+        <div className="field"><label>{assignedVehicleId ? 'Vehículo asignado' : 'Vehículo'}</label><select required value={form.vehicleId || ''} onChange={event => change('vehicleId', event.target.value)}><option value="">Seleccionar vehículo</option>{data.vehicles.map(vehicle => <option key={vehicle.id} value={vehicle.id}>{vehicle.plate} · {vehicle.brand}</option>)}</select>{assignedVehicleId && <small className="field-help">Se completa con tu vehículo asignado.</small>}</div>
+        <div className="field"><label>Fecha de envío</label><input type="date" value={form.date || today()} readOnly/></div>
       </div>
-
-      <section className="fuel-receipt-card">
-        <div className="fuel-receipt-heading">
-          <div><p className="eyebrow">PASO 2 · DATOS DEL COMPROBANTE</p><b>Revisa y corrige solo los datos necesarios.</b></div>
-        </div>
-        <div className="fuel-receipt-fields">
-          {receiptFields.map(field => <div className="field" key={field.key}>
-            <label>{field.label}</label>
-            <input required={Boolean(field.required)} type={field.type || 'text'} min={field.type === 'number' ? '0' : undefined} step={field.key === 'gallons' ? '0.001' : field.type === 'number' ? '0.01' : undefined} value={receiptValue(field)} onChange={event => changeReceiptField(field, event.target.value)} placeholder={field.placeholder} />
-          </div>)}
-        </div>
-        <p className="fuel-receipt-note">La lectura es automática, pero siempre puedes corregir los valores antes de guardar.</p>
-      </section>
-
-      </>}{status && <p className="ocr-status">{status}</p>}
-      <div className="form-actions"><button type="button" className="secondary" onClick={onClose}>Cancelar</button><button className="primary">Guardar combustible</button></div>
+      {status && <p className="ocr-status">{status}</p>}
+      {isAdmin && form._saved && <p className="field-help">Como administrador puedes revisar la foto en la lista de comprobantes.</p>}
+      <div className="form-actions"><button type="button" className="secondary" onClick={onClose} disabled={saving}>Cancelar</button><button className="primary" disabled={saving}>{saving ? 'Enviando comprobante…' : 'Enviar comprobante'}</button></div>
     </form>
   </dialog>;
 }
