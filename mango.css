@@ -17,9 +17,9 @@
 .splash-logo { position: relative; z-index: 2; display: grid; place-items: center; width: 120px; height: 120px; margin-bottom: 10px; filter: drop-shadow(0 15px 16px #062a1f66); animation: splash-float 1.9s ease-in-out infinite; }
 .splash-mango { display: grid; place-items: center; width: 88px; height: 102px; border-radius: 58% 42% 55% 45%; background: linear-gradient(145deg, #ffe371, #ffc336 48%, #e58e16); border: 5px solid #f5b727; color: #e89a1d; font-size: 33px; transform: rotate(-18deg); }
 .splash-leaf { position: absolute; top: 1px; right: 14px; width: 35px; height: 18px; border-radius: 100% 0 100% 0; background: #c4e658; transform: rotate(-26deg); z-index: 1; }
-.splash-company { position: relative; z-index: 2; margin: 0; color: #edf8c9; font: 700 11px/1 Outfit, sans-serif; letter-spacing: .2em; animation: splash-rise .7s ease both .15s; }
-.splash-screen h1 { position: relative; z-index: 2; margin: 2px 0 0; color: #fff; font-size: clamp(35px, 10vw, 48px); letter-spacing: -.04em; animation: splash-rise .7s ease both .27s; }
-.splash-subtitle { position: relative; z-index: 2; margin: 0; color: #e7f0d2; font-size: 14px; animation: splash-rise .7s ease both .39s; }
+.splash-company { position: relative; z-index: 2; margin: 0; color: #edf8c9; font: 700 11px/1 Outfit, sans-serif; letter-spacing: .2em; }
+.splash-screen h1 { position: relative; z-index: 2; margin: 2px 0 0; color: #fff; font-size: clamp(35px, 10vw, 48px); letter-spacing: -.04em; }
+.splash-subtitle { position: relative; z-index: 2; margin: 0; color: #e7f0d2; font-size: 14px; }
 .splash-loader { position: relative; z-index: 2; width: 58px; height: 4px; margin-top: 23px; overflow: hidden; border-radius: 9px; background: #ffffff36; }
 .splash-loader i { display: block; width: 45%; height: 100%; border-radius: inherit; background: #ffcd46; animation: splash-load 1.4s ease-in-out infinite; }
 .login-screen::before { content: 'FTP'; position: absolute; left: 50%; top: 48%; color: #edf7cb; font: 900 clamp(155px, 57vw, 460px)/.7 Outfit, sans-serif; letter-spacing: -.14em; opacity: .12; pointer-events: none; transform: translate(-54%, -50%) rotate(-8deg); animation: ftp-background 4s ease-in-out infinite; }

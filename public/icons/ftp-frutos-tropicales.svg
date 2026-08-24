@@ -1,14 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Frutos Tropicales">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Frutos Tropicales FTP Odómetro">
   <rect width="1024" height="1024" rx="224" fill="#17633c"/>
-  <defs>
-    <linearGradient id="fruit" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#ffe071"/>
-      <stop offset="0.55" stop-color="#f7b524"/>
-      <stop offset="1" stop-color="#e78616"/>
-    </linearGradient>
-  </defs>
-  <path d="M505 243c51-78 140-111 232-83-23 88-92 147-190 161z" fill="#b8df4f"/>
-  <path d="M491 265c-163 28-274 174-246 332 27 150 150 243 302 218 150-25 252-160 226-307-24-138-139-249-282-243Z" fill="url(#fruit)"/>
-  <path d="M488 258c-19 54-21 98-6 134" fill="none" stroke="#b8df4f" stroke-width="30" stroke-linecap="round"/>
-  <ellipse cx="495" cy="478" rx="25" ry="31" fill="#e99b18" opacity=".5"/>
+  <path d="M190 242h644" stroke="#f7a928" stroke-width="18" stroke-linecap="round" opacity=".92"/>
+  <text x="512" y="420" text-anchor="middle" fill="#ffc046" font-family="Arial, Helvetica, sans-serif" font-size="116" font-weight="800" letter-spacing="6">FTP</text>
+  <text x="512" y="545" text-anchor="middle" fill="#ffb23b" font-family="Arial, Helvetica, sans-serif" font-size="54" font-weight="800" letter-spacing="3">FRUTOS</text>
+  <text x="512" y="615" text-anchor="middle" fill="#ffb23b" font-family="Arial, Helvetica, sans-serif" font-size="54" font-weight="800" letter-spacing="1">TROPICALES</text>
+  <path d="M274 704h476" stroke="#f7a928" stroke-width="12" stroke-linecap="round" opacity=".82"/>
+  <text x="512" y="779" text-anchor="middle" fill="#e9f6cd" font-family="Arial, Helvetica, sans-serif" font-size="43" font-weight="700" letter-spacing="2">ODÓMETRO</text>
 </svg>
