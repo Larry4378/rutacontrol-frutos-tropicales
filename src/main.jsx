@@ -700,7 +700,6 @@ function MaintenanceAlerts({data, profile, driverPreview, onGo}) {
       const previous = latestByVehicle.get(maintenance.vehicleId);
       if (!previous || String(maintenance.date || '') > String(previous.date || '')) latestByVehicle.set(maintenance.vehicleId, maintenance);
     }
-    const todayAtNoon = new Date(`${today()}T12:00:00`);
     const alertsForDashboard = [];
     for (const [vehicleId, maintenance] of latestByVehicle) {
       if (assignedVehicleId && String(assignedVehicleId) !== String(vehicleId)) continue;
@@ -709,18 +708,18 @@ function MaintenanceAlerts({data, profile, driverPreview, onGo}) {
       const nextKm = Number(maintenance.nextKm);
       const kmNow = Number(currentKm(data, vehicle) || 0);
       const kmRemaining = Number.isFinite(nextKm) && nextKm > 0 ? nextKm - kmNow : null;
-      const nextDate = maintenance.nextDate ? new Date(`${maintenance.nextDate}T12:00:00`) : null;
-      const daysRemaining = nextDate && Number.isFinite(nextDate.getTime()) ? Math.ceil((nextDate - todayAtNoon) / 86400000) : null;
-      const due = (kmRemaining !== null && kmRemaining <= 0) || (daysRemaining !== null && daysRemaining <= 0);
-      const soon = !due && ((kmRemaining !== null && kmRemaining <= 500) || (daysRemaining !== null && daysRemaining <= 7));
-      if (due || soon) alertsForDashboard.push({vehicle, maintenance, kmNow, kmRemaining, daysRemaining, due});
+      // La programación de mantenimiento de la flota se controla por odómetro.
+      // La fecha se conserva como referencia en el registro, pero no genera alertas.
+      const due = kmRemaining !== null && kmRemaining <= 0;
+      const soon = !due && kmRemaining !== null && kmRemaining <= 500;
+      if (due || soon) alertsForDashboard.push({vehicle, maintenance, kmNow, kmRemaining, due});
     }
     return alertsForDashboard.sort((left, right) => Number(right.due) - Number(left.due));
   }, [data, driverPreview, profile?.permissions?.assignedVehicleId, profile?.role]);
 
   if (!alerts.length) return null;
   const kmText = value => Number(value).toLocaleString('es-PE', {maximumFractionDigits: 1});
-  return <section className="panel maintenance-alerts"><div className="section-head"><div><p className="eyebrow">MANTENIMIENTO</p><h2>Alertas de mantenimiento</h2><p>Se calculan con la próxima fecha y el próximo kilometraje registrados.</p></div><button className="text-button" onClick={() => onGo('maintenance')}>Ver mantenimiento</button></div><div className="maintenance-alert-list">{alerts.map(alert => { const details=[]; if(alert.daysRemaining !== null) details.push(alert.daysRemaining <= 0 ? `Fecha vencida: ${date(alert.maintenance.nextDate)}` : `Faltan ${alert.daysRemaining} día${alert.daysRemaining === 1 ? '' : 's'}: ${date(alert.maintenance.nextDate)}`); if(alert.kmRemaining !== null) details.push(alert.kmRemaining <= 0 ? `Kilometraje alcanzado: ${kmText(alert.kmNow)} km de ${kmText(alert.maintenance.nextKm)} km` : `Faltan ${kmText(alert.kmRemaining)} km: ${kmText(alert.kmNow)} de ${kmText(alert.maintenance.nextKm)} km`); return <article key={alert.vehicle.id} className={`maintenance-alert ${alert.due ? 'due' : 'soon'}`}><span className="maintenance-alert-icon">{alert.due ? '!' : '◷'}</span><div><b>{alert.vehicle.plate} · {alert.vehicle.brand} {alert.vehicle.model}</b><p>{alert.due ? 'Mantenimiento pendiente.' : 'Mantenimiento próximo.'} {details.join(' · ')}</p></div></article>; })}</div></section>;
+  return <section className="panel maintenance-alerts"><div className="section-head"><div><p className="eyebrow">MANTENIMIENTO</p><h2>Alertas de mantenimiento</h2><p>Se activan únicamente por el próximo kilometraje programado.</p></div><button className="text-button" onClick={() => onGo('maintenance')}>Ver mantenimiento</button></div><div className="maintenance-alert-list">{alerts.map(alert => { const detail=alert.kmRemaining <= 0 ? `Kilometraje alcanzado: ${kmText(alert.kmNow)} km de ${kmText(alert.maintenance.nextKm)} km` : `Faltan ${kmText(alert.kmRemaining)} km: ${kmText(alert.kmNow)} de ${kmText(alert.maintenance.nextKm)} km`; return <article key={alert.vehicle.id} className={`maintenance-alert ${alert.due ? 'due' : 'soon'}`}><span className="maintenance-alert-icon">{alert.due ? '!' : '◷'}</span><div><b>{alert.vehicle.plate} · {alert.vehicle.brand} {alert.vehicle.model}</b><p>{alert.due ? 'Mantenimiento pendiente.' : 'Mantenimiento próximo.'} {detail}</p></div></article>; })}</div></section>;
 }
 function MangoQuickActions({permissions,onDeparture,onReturn}) { return <section className="mango-actions"><div><p className="eyebrow">ACCESO RÁPIDO</p><h2>¿El vehículo sale o llega?</h2><p>Registra el movimiento con un toque.</p></div><div className="mango-buttons">{permissions.departure&&<button className="mango-button departure" onClick={onDeparture}><i className="mango-fruit"/><span>Registrar<br/><b>Salida</b></span></button>}{permissions.arrival&&<button className="mango-button arrival" onClick={onReturn}><i className="mango-fruit"/><span>Registrar<br/><b>Llegada</b></span></button>}</div></section>; }
 function RouteMap({data,profile,driverPreview,onUpdate}) {
