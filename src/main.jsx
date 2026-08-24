@@ -324,7 +324,7 @@ function App() {
         id: record.id,
         vehicle_id: record.vehicleId,
         created_by: user.id,
-        service_type: record.type,
+        service_type: record.type || 'Afinamiento general',
         service_date: record.date || today(),
         service_km: Number(record.serviceKm),
         next_date: record.nextDate || null,
