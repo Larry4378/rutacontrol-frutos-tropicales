@@ -8,7 +8,7 @@
   "theme_color": "#17633c",
   "lang": "es-PE",
   "icons": [
-    { "src": "./icons/ftp-frutos-tropicales.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" },
+    { "src": "./icons/ftp-frutos-tropicales.svg?v=2", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" },
     { "src": "./icons/frutos-tropicales-logo.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
   ]
 }
