@@ -798,26 +798,6 @@ function FuelModalReceipt({ record = {}, data, assignedVehicleId = '', onClose, 
     }
   };
 
-  const scanOdometer = async file => {
-    if (!file) return;
-    change('kmPhoto', file.name);
-    setStatus('Leyendo el odómetro…');
-    try {
-      const worker = await createWorker('eng');
-      const { data: { text } } = await worker.recognize(file);
-      await worker.terminate();
-      const values = (text.match(/\b\d{3,7}(?:[.,]\d{1,3})*\b/g) || [])
-        .map(value => receiptNumber(value)).filter(value => Number.isFinite(value) && value > 0);
-      const km = Math.max(...values);
-      if (Number.isFinite(km)) {
-        change('km', String(km));
-        setStatus(`Odómetro reconocido: ${km.toLocaleString('es-PE')} km. Puedes corregirlo si fuera necesario.`);
-      } else setStatus('No se pudo leer el odómetro. Escríbelo manualmente.');
-    } catch {
-      setStatus('No se pudo leer el odómetro. Escríbelo manualmente.');
-    }
-  };
-
   const submit = event => {
     event.preventDefault();
     if (!hasReceipt) return alert('Primero toma una foto del comprobante para completar el abastecimiento.');
@@ -872,10 +852,6 @@ function FuelModalReceipt({ record = {}, data, assignedVehicleId = '', onClose, 
         <p className="fuel-receipt-note">La lectura es automática, pero siempre puedes corregir los valores antes de guardar.</p>
       </section>
 
-      <div className="field fuel-odometer-photo">
-        <label>Foto del odómetro <small>(opcional, para contrastar)</small></label>
-        <PhotoSource onChange={event => scanOdometer(event.target.files?.[0])} />
-      </div>
       </>}{status && <p className="ocr-status">{status}</p>}
       <div className="form-actions"><button type="button" className="secondary" onClick={onClose}>Cancelar</button><button className="primary">Guardar combustible</button></div>
     </form>
