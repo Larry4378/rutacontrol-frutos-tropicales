@@ -469,9 +469,10 @@ function Trips({data,drivers=[],profile,onEdit,onDelete}) {
       <select aria-label="Filtrar por chofer" value={filters.driver} onChange={e=>setFilters({...filters,driver:e.target.value})}><option value="">Todos los choferes</option>{driverNames.map(driver=><option key={driver}>{driver}</option>)}</select>
       <select aria-label="Filtrar por estado" value={filters.status} onChange={e=>setFilters({...filters,status:e.target.value})}><option value="">Todos los estados</option><option>En ruta</option><option>Finalizado</option></select>
     </div>
-    <Table heads={['Salida','Vehículo','Chofer','Origen → destino','Odómetro','Total','']}>
+    <Table heads={['Salida','Llegada','Vehículo','Chofer','Origen → destino','Odómetro','Total','']}>
       {filtered.slice().reverse().map(t=><tr key={t.id}>
         <td>{date(t.departureDate)}<br/><span>{t.departureTime}</span></td>
+        <td>{t.endKm !== null && t.endKm !== undefined && t.endKm !== '' ? <>{date(t.returnDate)}<br/><span>{t.returnTime || '—'}</span></> : <span className="badge warn">En ruta</span>}</td>
         <td>{vehicleName(data,t.vehicleId)}</td>
         <td><div className="trip-driver-evidence"><b className="trip-driver-name">{driverName(t)}</b><div className="trip-evidence-actions"><button type="button" className="text-button" onClick={()=>showOdometerPhoto(t,'departure')}>Foto salida</button>{t.endKm&&<button type="button" className="text-button" onClick={()=>showOdometerPhoto(t,'return')}>Foto llegada</button>}</div></div></td>
         <td><div className="trip-route"><div><small>Origen</small><span>{t.origin || 'No registrado'}</span></div><i>→</i><div><small>Destino</small><span>{t.destination || 'Pendiente'}</span></div></div></td>
