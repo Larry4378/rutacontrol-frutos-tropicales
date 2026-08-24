@@ -139,10 +139,21 @@ const receiptInfo = text => {
   const sideLine = findLine(/(?:lado|isla)\s*:/i);
   const terminalLine = findLine(/\bterminal\b/i);
   const details = [
+    ['receiptDocumentType', 'Tipo de comprobante', documentType],
     ['receiptSite', 'Lugar / sede', site],
     ['receiptNumber', 'Número de vale', documentNumber],
     ['receiptIssuedAt', 'Fecha de emisión', issuedAt],
+    ['receiptRuc', rucRead.length === 10 ? 'RUC del proveedor (completado)' : 'RUC del proveedor', ruc],
+    ['receiptPlate', 'Placa indicada', plate],
+    ['receiptDriver', 'Chofer indicado', driver],
     ['cardNumber', 'Número de tarjeta', cardNumber],
+    ['unitPrice', 'Precio por galón S/', Number.isFinite(price) && price > 0 && price < 100 ? String(price) : ''],
+    ['receiptCustomer', 'Razón social / cliente', customer],
+    ['receiptAddress', 'Dirección indicada', address],
+    ['receiptPayment', 'Forma de pago', payment],
+    ['receiptShift', 'Turno / cara / cajero', shiftLine],
+    ['receiptSide', 'Lado / isla', sideLine],
+    ['receiptTerminal', 'Terminal', terminalLine]
   ].filter(([, , value]) => value).map(([key, label, value]) => ({ key, label, value }));
   return { total, provider, product, gallons, odometer, plate, documentDate, details, hasUsefulData: Boolean(provider || product || Number.isFinite(gallons) || Number.isFinite(odometer) || Number.isFinite(total) || details.length) };
 };
@@ -870,6 +881,42 @@ function FuelModalReceipt({ record = {}, data, assignedVehicleId = '', onClose, 
     [key]: value,
     documentDetails: (current.documentDetails || []).map(detail => detail.key === key ? { ...detail, value } : detail),
   }));
+  const isCoesti = /\bcoesti\b/i.test(form.provider || '');
+  const isHuertas = /\bhuertas\b/i.test(form.provider || '');
+  const receiptFields = isCoesti ? [
+    { key: 'provider', label: 'Proveedor', source: 'form', required: true, placeholder: 'Ejemplo: COESTI S.A.' },
+    { key: 'receiptSite', label: 'Lugar / sede', placeholder: 'Ejemplo: E/S Casma' },
+    { key: 'receiptNumber', label: 'Número de vale', placeholder: 'Ejemplo: U254-00019019' },
+    { key: 'receiptIssuedAt', label: 'Fecha de emisión', placeholder: 'Ejemplo: 17/08/2026 17:16' },
+    { key: 'gallons', label: 'Cantidad de galones abastecidos', source: 'form', type: 'number', required: true, placeholder: 'Ejemplo: 14.641' },
+    { key: 'product', label: 'Producto (gasolina o petróleo)', source: 'form', placeholder: 'Ejemplo: Diesel B5 o Gasohol' },
+    { key: 'cardNumber', label: 'Número de tarjeta', placeholder: 'Se completa desde el comprobante' },
+    { key: 'km', label: 'Kilometraje', source: 'form', type: 'number', placeholder: 'Se completa desde el comprobante' },
+  ] : isHuertas ? [
+    { key: 'provider', label: 'Proveedor', source: 'form', required: true, placeholder: 'Corporación Hermanos Huertas' },
+    { key: 'receiptSite', label: 'Lugar / sede', placeholder: 'Dirección del establecimiento' },
+    { key: 'receiptNumber', label: 'Número de nota de despacho', placeholder: 'Ejemplo: 0040089652' },
+    { key: 'receiptIssuedAt', label: 'Fecha de emisión', placeholder: 'Ejemplo: 24/08/2026 08:23' },
+    { key: 'receiptDriver', label: 'Chofer indicado', placeholder: 'Nombre del chofer' },
+    { key: 'receiptPlate', label: 'Placa indicada', placeholder: 'Placa del vehículo' },
+    { key: 'product', label: 'Producto', source: 'form', placeholder: 'Ejemplo: Gasohol regular' },
+    { key: 'gallons', label: 'Cantidad de galones abastecidos', source: 'form', type: 'number', required: true, placeholder: 'Ejemplo: 1.168' },
+    { key: 'unitPrice', label: 'Precio por galón S/', type: 'number', placeholder: 'Ejemplo: 21.20' },
+    { key: 'cost', label: 'Monto total S/', source: 'form', type: 'number', placeholder: 'Ejemplo: 24.76' },
+    { key: 'km', label: 'Kilometraje', source: 'form', type: 'number', placeholder: 'Se completa desde el comprobante' },
+    { key: 'receiptSide', label: 'Lado / isla', placeholder: 'Si figura en el comprobante' },
+  ] : [
+    { key: 'provider', label: 'Proveedor', source: 'form', required: true, placeholder: 'Nombre del proveedor' },
+    { key: 'receiptSite', label: 'Lugar / sede', placeholder: 'Lugar de abastecimiento' },
+    { key: 'receiptNumber', label: 'Número del comprobante', placeholder: 'Número o vale' },
+    { key: 'receiptIssuedAt', label: 'Fecha de emisión', placeholder: 'Fecha del comprobante' },
+    { key: 'product', label: 'Producto', source: 'form', placeholder: 'Gasolina o petróleo' },
+    { key: 'gallons', label: 'Cantidad de galones abastecidos', source: 'form', type: 'number', required: true, placeholder: 'Cantidad de galones' },
+    { key: 'cost', label: 'Monto total S/', source: 'form', type: 'number', placeholder: 'Monto total' },
+    { key: 'km', label: 'Kilometraje', source: 'form', type: 'number', placeholder: 'Kilometraje indicado' },
+  ];
+  const receiptValue = field => field.key === 'gallons' ? (form.gallons ?? form.liters ?? '') : (form[field.key] || '');
+  const changeReceiptField = (field, value) => field.source === 'form' ? change(field.key, value) : changeDetail(field.key, value);
 
   const scanReceipt = async file => {
     if (!file) return;
@@ -942,15 +989,10 @@ function FuelModalReceipt({ record = {}, data, assignedVehicleId = '', onClose, 
           <div><p className="eyebrow">PASO 2 · DATOS DEL COMPROBANTE</p><b>Revisa y corrige solo los datos necesarios.</b></div>
         </div>
         <div className="fuel-receipt-fields">
-          <div className="field"><label>Proveedor</label><input required value={form.provider || ''} onChange={event => change('provider', event.target.value)} placeholder="Ejemplo: COESTI S.A." /></div>
-          <div className="field"><label>Lugar / sede</label><input value={form.receiptSite || ''} onChange={event => changeDetail('receiptSite', event.target.value)} placeholder="Ejemplo: E/S Casma" /></div>
-          <div className="field"><label>Número de vale</label><input value={form.receiptNumber || ''} onChange={event => changeDetail('receiptNumber', event.target.value)} placeholder="Ejemplo: U254-00019019" /></div>
-          <div className="field"><label>Fecha de emisión</label><input value={form.receiptIssuedAt || ''} onChange={event => changeDetail('receiptIssuedAt', event.target.value)} placeholder="Ejemplo: 17/08/2026 17:16" /></div>
-          <div className="field"><label>Cantidad de galones abastecidos</label><input required type="number" min="0" step="0.001" value={form.gallons ?? form.liters ?? ''} onChange={event => change('gallons', event.target.value)} placeholder="Ejemplo: 14.641" /></div>
-          <div className="field"><label>Producto (gasolina o petróleo)</label><input value={form.product || ''} onChange={event => change('product', event.target.value)} placeholder="Ejemplo: Diesel B5 o Gasohol" /></div>
-          <div className="field"><label>Número de tarjeta</label><input value={form.cardNumber || ''} onChange={event => changeDetail('cardNumber', event.target.value)} placeholder="Se completa desde el comprobante" /></div>
-          <div className="field"><label>Kilometraje</label><input type="number" min="0" step="0.1" value={form.km || ''} onChange={event => change('km', event.target.value)} placeholder="Se completa desde el comprobante" /></div>
-          <div className="field full"><label>Monto total S/ <small>(si figura en el comprobante)</small></label><input type="number" min="0" step="0.01" value={form.cost || ''} onChange={event => change('cost', event.target.value)} placeholder="Ejemplo: 250.00" /></div>
+          {receiptFields.map(field => <div className="field" key={field.key}>
+            <label>{field.label}</label>
+            <input required={Boolean(field.required)} type={field.type || 'text'} min={field.type === 'number' ? '0' : undefined} step={field.key === 'gallons' ? '0.001' : field.type === 'number' ? '0.01' : undefined} value={receiptValue(field)} onChange={event => changeReceiptField(field, event.target.value)} placeholder={field.placeholder} />
+          </div>)}
         </div>
         <p className="fuel-receipt-note">La lectura es automática, pero siempre puedes corregir los valores antes de guardar.</p>
       </section>
