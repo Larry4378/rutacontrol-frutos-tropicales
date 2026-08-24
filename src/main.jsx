@@ -58,9 +58,22 @@ const receiptNumber = value => {
   const decimals = raw.length - lastSeparator - 1;
   return Number(separators.length === 1 && decimals <= 2 ? raw.replace(',', '.') : raw.replace(/[.,]/g, ''));
 };
+const receiptQuantity = value => {
+  const raw = String(value || '').replace(/[^\d.,]/g, '');
+  if (!raw) return NaN;
+  const separators = raw.match(/[.,]/g) || [];
+  return Number(separators.length === 1 ? raw.replace(',', '.') : raw.replace(/[.,]/g, ''));
+};
 const receiptInfo = text => {
   const lines = text.split(/\r?\n/).map(line => line.trim().replace(/\s+/g, ' ')).filter(Boolean);
+  const allText = lines.join(' ');
   const findLine = expression => lines.find(line => expression.test(line)) || '';
+  const valueAfterLabel = expression => {
+    const index = lines.findIndex(line => expression.test(line));
+    if (index < 0) return '';
+    const value = lines[index].replace(expression, '').replace(/^\s*[:.-]\s*/, '').trim();
+    return value || lines[index + 1] || '';
+  };
   const totalIndex = lines.findIndex(line => /(monto\s*final|costo\s*total|importe\s*total|total\s*(a\s*pagar|venta)?)/i.test(line));
   const totalCandidates = (totalIndex >= 0 ? lines.slice(totalIndex, totalIndex + 3) : lines).join(' ').match(/\d{1,5}[.,]\d{2}\b/g) || [];
   const totals = totalCandidates.map(value => Number(value.replace(',', '.'))).filter(value => value > 0);
@@ -74,25 +87,38 @@ const receiptInfo = text => {
   const gallonsBeforeUnit = gallonLine.match(/(\d{1,4}(?:[.,]\d{1,3})?)\s*(?:gal(?:ones)?|gals?|gll|ugl|gl)\b/i)?.[1];
   const gallonsAfterUnit = gallonLine.match(/(?:gal(?:ones)?|gals?|gll|ugl|gl)\s*[:.]?\s*(\d{1,4}(?:[.,]\d{1,3})?)/i)?.[1];
   const productNumbers = productLine.match(/\d{1,4}(?:[.,]\d{1,3})?/g) || [];
-  const productQuantity = productNumbers.length >= 3 ? productNumbers[0] : '';
-  const gallons = receiptNumber(gallonsBeforeUnit || gallonsAfterUnit || productQuantity);
-  const price = receiptNumber(productNumbers.length >= 3 ? productNumbers.at(-2) : '');
-  const odometerLine = findLine(/(kilometraje|od[oó]metro|\bodo\b|\bkm\s*:)/i);
+  // Sin unidad visible solo confiamos en una cantidad decimal: evita convertir 1.168 mal leído en 168 galones.
+  const productQuantity = productNumbers.find(value => /[.,]/.test(value) && receiptQuantity(value) > 0 && receiptQuantity(value) < 100) || '';
+  const gallons = receiptQuantity(gallonsAfterUnit || gallonsBeforeUnit || productQuantity);
+  const price = receiptNumber(productNumbers.length >= 3 && productNumbers.some(value => /[.,]/.test(value)) ? productNumbers.at(-2) : '');
+  const odometerLine = findLine(/(kilo(?:metraje|netraje)|od[oó]metro|\bodo\b|\bkm\s*:)/i);
   const odometer = receiptNumber(odometerLine.match(/[\d.,]{3,}/)?.[0]);
   const documentType = findLine(/\b(factura(?: de venta)?|boleta|nota de despacho|ticket|vale)\b/i);
   const numberLine = findLine(/(?:n[°ºo]?|nro|numero|número)\s*[:.-]?\s*[a-z0-9]/i);
-  const documentNumber = numberLine.match(/([A-Z]{0,4}\d{1,5}\s*-?\s*\d{5,})/i)?.[1]?.replace(/\s/g, '') || '';
-  const issuedAt = findLine(/\b\d{2}[\/-]\d{2}[\/-]\d{2,4}\s+(?:hora\s*)?\d{1,2}:\d{2}(?::\d{2})?\b/i)
-    || findLine(/\b\d{1,2}\s+de\s+(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\s+de\s+\d{4}(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?\b/i);
+  const documentNumber = lines.join(' ').match(/\b([A-Z]{1,4}\d{1,5}\s*-\s*\d{5,})\b/i)?.[1]?.replace(/\s/g, '')
+    || numberLine.match(/([A-Z]{0,4}\d{1,5}\s*-?\s*\d{5,})/i)?.[1]?.replace(/\s/g, '') || '';
+  const issuedAt = allText.match(/\b\d{2}[\/-]\d{2}[\/-]\d{2,4}\s+(?:hora\s*)?\d{1,2}:\d{2}(?::\d{2})?\b/i)?.[0]
+    || allText.match(/\b\d{1,2}\s+de\s+(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\s+de\s+\d{4}(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?\b/i)?.[0]
+    || allText.match(/\b\d{1,2}\s+de\s+\S+\s+de\s+\d{4}(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?\b/i)?.[0] || '';
+  const numericDate = issuedAt.match(/(\d{2})[\/-](\d{2})[\/-](\d{4})/);
+  const monthNames = { enero: '01', febrero: '02', marzo: '03', abril: '04', mayo: '05', junio: '06', julio: '07', agosto: '08', septiembre: '09', octubre: '10', noviembre: '11', diciembre: '12' };
+  const writtenDate = issuedAt.match(/(\d{1,2})\s+de\s+([a-záéíóú]+)\s+de\s+(\d{4})/i);
+  const documentDate = numericDate ? `${numericDate[3]}-${numericDate[2]}-${numericDate[1]}` : writtenDate && monthNames[writtenDate[2].toLowerCase()] ? `${writtenDate[3]}-${monthNames[writtenDate[2].toLowerCase()]}-${writtenDate[1].padStart(2, '0')}` : '';
   const rucLine = findLine(/\br\.?u\.?c\.?\b/i);
   const ruc = rucLine.match(/\b\d{11}\b/)?.[0] || '';
   const plateLine = findLine(/\bplaca\b/i);
   const plate = plateLine.match(/placa\s*:?\s*([A-Z0-9-]{5,12})/i)?.[1] || '';
   const driverLine = findLine(/\b(chofer|conductor)\b/i);
   const driver = driverLine.replace(/^.*?(?:chofer|conductor)\s*:?\s*/i, '');
-  const cardLine = findLine(/\btarjeta\b/i);
-  const cardNumber = cardLine.match(/(?:tarjeta)\s*:?\s*([0-9]{8,})/i)?.[1] || '';
+  const cardLine = findLine(/\btar\s*jeta\b/i);
+  const cardNumber = cardLine.match(/(?:tar\s*jeta)\s*:?\s*([0-9]{8,})/i)?.[1] || '';
   const site = station || findLine(/(?:car\.?|av\.?|km\.?|sede|casma|piura|sullana|tambogrande)/i);
+  const customer = valueAfterLabel(/.*?(?:raz[óo]n\s+social|raz\.?\s*soc\.?)/i);
+  const address = valueAfterLabel(/.*?(?:direcc(?:i[oó]n)?|domicilio)/i);
+  const payment = valueAfterLabel(/.*?(?:forma\s+de\s+pago|pago)/i);
+  const shiftLine = findLine(/(?:turno|cara|cajero)/i);
+  const sideLine = findLine(/(?:lado|isla)\s*:/i);
+  const terminalLine = findLine(/\bterminal\b/i);
   const details = [
     ['receiptDocumentType', 'Tipo de comprobante', documentType],
     ['receiptNumber', 'Número de comprobante / vale', documentNumber],
@@ -102,9 +128,69 @@ const receiptInfo = text => {
     ['receiptPlate', 'Placa indicada', plate],
     ['receiptDriver', 'Chofer indicado', driver],
     ['cardNumber', 'Número de tarjeta', cardNumber],
-    ['unitPrice', 'Precio por galón S/', Number.isFinite(price) ? String(price) : '']
+    ['unitPrice', 'Precio por galón S/', Number.isFinite(price) && price > 0 && price < 100 ? String(price) : ''],
+    ['receiptCustomer', 'Razón social / cliente', customer],
+    ['receiptAddress', 'Dirección indicada', address],
+    ['receiptPayment', 'Forma de pago', payment],
+    ['receiptShift', 'Turno / cara / cajero', shiftLine],
+    ['receiptSide', 'Lado / isla', sideLine],
+    ['receiptTerminal', 'Terminal', terminalLine]
   ].filter(([, , value]) => value).map(([key, label, value]) => ({ key, label, value }));
-  return { total, provider, product, gallons, odometer, plate, details, hasUsefulData: Boolean(provider || product || Number.isFinite(gallons) || Number.isFinite(odometer) || Number.isFinite(total) || details.length) };
+  return { total, provider, product, gallons, odometer, plate, documentDate, details, hasUsefulData: Boolean(provider || product || Number.isFinite(gallons) || Number.isFinite(odometer) || Number.isFinite(total) || details.length) };
+};
+
+const mergeReceiptInfo = readings => {
+  const candidates = readings.map(receiptInfo);
+  const firstText = key => candidates.map(candidate => candidate[key]).find(value => typeof value === 'string' && value.trim());
+  const firstNumber = key => candidates.map(candidate => candidate[key]).find(value => Number.isFinite(value) && value > 0);
+  const details = new Map();
+  candidates.forEach(candidate => candidate.details.forEach(detail => {
+    const current = details.get(detail.key);
+    if (!current || String(detail.value).length > String(current.value).length) details.set(detail.key, detail);
+  }));
+  const provider = firstText('provider') || '';
+  const product = firstText('product') || '';
+  const plate = firstText('plate') || '';
+  const gallons = firstNumber('gallons');
+  const odometer = firstNumber('odometer');
+  const total = firstNumber('total');
+  const documentDate = firstText('documentDate') || '';
+  return { provider, product, plate, gallons, odometer, total, documentDate, details: [...details.values()], hasUsefulData: Boolean(provider || product || plate || Number.isFinite(gallons) || Number.isFinite(odometer) || Number.isFinite(total) || details.size) };
+};
+
+const prepareReceiptImage = async file => {
+  if (!window.createImageBitmap) return file;
+  const image = await createImageBitmap(file);
+  try {
+    const sourceX = Math.round(image.width * 0.08);
+    const sourceY = Math.round(image.height * 0.06);
+    const sourceWidth = Math.round(image.width * 0.84);
+    const sourceHeight = Math.round(image.height * 0.90);
+    const scale = Math.min(2.4, 2200 / sourceWidth);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(sourceWidth * scale);
+    canvas.height = Math.round(sourceHeight * scale);
+    const context = canvas.getContext('2d');
+    context.fillStyle = '#fff';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.filter = 'grayscale(1) contrast(1.85) brightness(1.12)';
+    context.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/jpeg', 0.96);
+  } finally {
+    image.close?.();
+  }
+};
+
+const readReceiptWithOcr = async file => {
+  const enhanced = await prepareReceiptImage(file).catch(() => file);
+  const worker = await createWorker('eng');
+  try {
+    const original = await worker.recognize(file);
+    const improved = enhanced === file ? { data: { text: '' } } : await worker.recognize(enhanced);
+    return [original.data.text, improved.data.text].filter(Boolean);
+  } finally {
+    await worker.terminate();
+  }
 };
 
 const plateKey = value => String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -777,21 +863,25 @@ function FuelModalReceipt({ record = {}, data, assignedVehicleId = '', onClose, 
     setHasReceipt(true);
     setStatus('Leyendo los datos del comprobante…');
     try {
-      const worker = await createWorker('eng');
-      const { data: { text } } = await worker.recognize(file);
-      await worker.terminate();
-      const info = receiptInfo(text);
+      const readings = await readReceiptWithOcr(file);
+      const info = mergeReceiptInfo(readings);
       if (info.provider) change('provider', info.provider);
       if (info.product) change('product', info.product);
       if (Number.isFinite(info.gallons) && info.gallons > 0 && info.gallons < 1000) change('gallons', String(info.gallons));
       if (Number.isFinite(info.odometer) && info.odometer > 0) change('km', String(info.odometer));
       if (Number.isFinite(info.total)) change('cost', info.total.toFixed(2));
-      change('documentDetails', info.details || []);
-      (info.details || []).forEach(detail => change(detail.key, detail.value));
-      const matchedVehicle = data.vehicles.find(vehicle => plateKey(vehicle.plate) === plateKey(info.plate));
+      if (info.documentDate) change('date', info.documentDate);
+      const exactVehicle = data.vehicles.find(vehicle => plateKey(vehicle.plate) === plateKey(info.plate));
+      const approximateVehicle = !exactVehicle && info.plate ? findVehicleFromPlateOcr(info.plate, data.vehicles)?.vehicle : null;
+      const matchedVehicle = exactVehicle || approximateVehicle;
+      const details = (info.details || []).map(detail => detail.key === 'receiptPlate' && matchedVehicle
+        ? { ...detail, value: matchedVehicle.plate }
+        : detail);
+      change('documentDetails', details);
+      details.forEach(detail => change(detail.key, detail.value));
       if (matchedVehicle) change('vehicleId', matchedVehicle.id);
       setStatus(info.hasUsefulData
-        ? 'Comprobante leído. Revisa los datos antes de guardar.'
+        ? `Comprobante leído. Se identificaron ${info.details.length} datos adicionales; revisa antes de guardar.`
         : 'No se pudo reconocer el comprobante. Completa los campos manualmente.');
     } catch {
       setStatus('No se pudo leer el comprobante. Completa los datos manualmente.');
