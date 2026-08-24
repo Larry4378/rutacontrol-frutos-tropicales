@@ -112,6 +112,7 @@ function App() {
   const [modal, setModal] = useState(null);
   const [error, setError] = useState('');
   const [profile, setProfile] = useState(null);
+  const [profileReady, setProfileReady] = useState(false);
   const [drivers, setDrivers] = useState([]);
   const [driverPreview, setDriverPreview] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
@@ -119,8 +120,16 @@ function App() {
   useEffect(() => localStorage.setItem('rutacontrol-react', JSON.stringify(data)), [data]);
   useEffect(() => { const timer = setTimeout(() => setShowSplash(false), 1900); return () => clearTimeout(timer); }, []);
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => { setSession(session); setAuthReady(true); });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, nextSession) => setSession(nextSession));
+    const changeSession = nextSession => {
+      // Nunca reutilizamos el historial local de una persona en la sesión de otra.
+      setData(empty);
+      setProfile(null);
+      setDrivers([]);
+      setProfileReady(false);
+      setSession(nextSession);
+    };
+    supabase.auth.getSession().then(({ data: { session } }) => { changeSession(session); setAuthReady(true); });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, nextSession) => changeSession(nextSession));
     return () => subscription.unsubscribe();
   }, []);
   useEffect(() => {
@@ -132,22 +141,30 @@ function App() {
       });
   }, [session]);
   useEffect(() => {
-    if (!session) return;
+    // Espera a conocer el rol antes de pedir datos: así un chofer nunca hace
+    // una consulta general de recorridos mientras se inicializa la aplicación.
+    if (!session || !profileReady || !profile) return;
     let active = true;
     const loadTrips = async () => {
       // El historial no necesita descargar miles de puntos GPS antiguos.
       // Cargar solo las rutas que siguen abiertas hace que la aplicación
       // vuelva a estar lista mucho más rápido al regresar desde el celular.
-      const { data: trips, error: loadError } = await supabase
+      const ownId = profile.id || session.user.id;
+      const ownTripsOnly = profile.role === 'driver';
+      let tripsRequest = supabase
         .from('trips')
         .select('id,vehicle_id,driver_id,driver_profile_id,departure_at,return_at,origin,destination,start_km,end_km,status,notes')
         .order('departure_at', { ascending: false });
+      if (ownTripsOnly) tripsRequest = tripsRequest.or(`driver_profile_id.eq.${ownId},driver_id.eq.${ownId}`);
+      const { data: trips, error: loadError } = await tripsRequest;
       if (!active) return;
       if (loadError) return setError(`No se pudieron cargar los recorridos: ${loadError.message}`);
-      const { data: openRoutes, error: routeLoadError } = await supabase
+      let routesRequest = supabase
         .from('trips')
         .select('id,route_points')
         .is('end_km', null);
+      if (ownTripsOnly) routesRequest = routesRequest.or(`driver_profile_id.eq.${ownId},driver_id.eq.${ownId}`);
+      const { data: openRoutes, error: routeLoadError } = await routesRequest;
       if (!active) return;
       if (routeLoadError) return setError(`No se pudieron cargar las rutas activas: ${routeLoadError.message}`);
       const routesByTrip = new Map((openRoutes || []).map(trip => [trip.id, trip.route_points || []]));
@@ -168,15 +185,22 @@ function App() {
       window.removeEventListener('focus', loadTrips);
       document.removeEventListener('visibilitychange', refreshWhenReturning);
     };
-  }, [session]);
+  }, [session, profileReady, profile?.id, profile?.role]);
   const loadUsers = async () => {
-    if (!session) return;
+    if (!session) {
+      setProfile(null);
+      setDrivers([]);
+      setProfileReady(false);
+      return;
+    }
+    setProfileReady(false);
     const { data: own } = await supabase.from('user_profiles').select('id,full_name,role,is_active,permissions').eq('id', session.user.id).maybeSingle();
     setProfile(own || null);
     if (own?.role === 'admin') {
       const { data: rows } = await supabase.from('user_profiles').select('id,full_name,role,access_code,is_active,permissions,qr_token,created_at').eq('role','driver').order('created_at',{ascending:false});
       setDrivers(rows || []);
-    }
+    } else setDrivers([]);
+    setProfileReady(true);
   };
   useEffect(() => { loadUsers(); }, [session]);
   useEffect(() => {
@@ -430,6 +454,13 @@ function Trips({data,drivers=[],profile,onEdit,onDelete}) {
   const [filters,setFilters]=useState({search:'',date:'',vehicleId:'',driver:'',status:''});
   const [photo,setPhoto]=useState(null);
   useEffect(()=>()=>{if(photo?.url) URL.revokeObjectURL(photo.url)},[photo?.url]);
+  // Defensa adicional de interfaz: aunque un dato antiguo quedara en memoria,
+  // cada chofer puede operar y visualizar únicamente sus propios recorridos.
+  const visibleTrips = useMemo(() => {
+    if (profile?.role !== 'driver') return data.trips;
+    const ownId = String(profile.id || '');
+    return data.trips.filter(trip => String(trip.driverProfileId || trip.driver || '') === ownId);
+  }, [data.trips, profile?.id, profile?.role]);
   const driverName = trip => {
     const profileId = String(trip.driverProfileId || trip.driver || '');
     const registeredDriver = drivers.find(driver => String(driver.id) === profileId);
@@ -437,13 +468,13 @@ function Trips({data,drivers=[],profile,onEdit,onDelete}) {
     if (profile && String(profile.id) === profileId && profile.full_name) return profile.full_name;
     return trip.driverName || trip.driver || 'Sin conductor registrado';
   };
-  const filtered=data.trips.filter(t=>{
+  const filtered=visibleTrips.filter(t=>{
     const query=filters.search.trim().toLowerCase();
     const displayDriver=driverName(t);
     const searchable=[vehicleName(data,t.vehicleId),displayDriver,t.origin,t.destination].join(' ').toLowerCase();
     return (!query||searchable.includes(query))&&(!filters.date||t.departureDate===filters.date)&&(!filters.vehicleId||t.vehicleId===filters.vehicleId)&&(!filters.driver||displayDriver===filters.driver)&&(!filters.status||(filters.status==='En ruta'?!t.endKm:!!t.endKm));
   });
-  const driverNames=[...new Set(data.trips.map(driverName).filter(Boolean))];
+  const driverNames=[...new Set(visibleTrips.map(driverName).filter(Boolean))];
   const showOdometerPhoto=async (trip,stage)=>{
     const stageLabel=stage==='return'?'llegada':'salida';
     setPhoto({loading:true});
