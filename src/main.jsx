@@ -73,6 +73,38 @@ const completePeruvianRuc = value => {
   const verifier = 11 - remainder;
   return `${digits}${verifier === 10 ? 0 : verifier === 11 ? 1 : verifier}`;
 };
+// En las placas impresas es frecuente que el OCR confunda caracteres similares
+// (por ejemplo, «B» por «8»). La normalización solo corrige posiciones que
+// claramente forman parte de una matrícula, sin modificar el texto del recibo.
+const plateDigitFromOcr = character => ({
+  O: '0', Q: '0', D: '0',
+  I: '1', L: '1',
+  Z: '2',
+  E: '3',
+  S: '5',
+  G: '6',
+  T: '7',
+  B: '8'
+}[String(character || '').toUpperCase()] || character);
+const normalizeReceiptPlate = value => {
+  const compact = String(value || '').replace(/[^A-Za-z0-9]/g, '');
+  if (compact.length < 5 || compact.length > 8) return compact.toUpperCase();
+  const characters = [...compact];
+  // Las tres últimas posiciones de una placa de seis caracteres suelen ser
+  // numéricas. Ahí sí es seguro corregir B → 8, S → 5, O → 0, etc.
+  if (characters.length === 6) {
+    [3, 4, 5].forEach(index => {
+      characters[index] = plateDigitFromOcr(characters[index]);
+    });
+    // Tesseract puede leer el «5» impreso como una «a» minúscula. En una
+    // matrícula del patrón P5H827, el contexto deja claro que es un dígito.
+    if (/^[A-Z]$/.test(characters[0]) && /^[a-z]$/.test(characters[1]) && /^[A-Z]$/.test(characters[2]) && characters.slice(3).every(character => /\d/.test(character))) {
+      const secondCharacter = { a: '5', s: '5', b: '8', g: '6', z: '2', o: '0', i: '1', l: '1' }[characters[1].toLowerCase()];
+      if (secondCharacter) characters[1] = secondCharacter;
+    }
+  }
+  return characters.join('').toUpperCase();
+};
 const receiptInfo = text => {
   const lines = text.split(/\r?\n/).map(line => line.trim().replace(/\s+/g, ' ')).filter(Boolean);
   const allText = lines.join(' ');
@@ -125,7 +157,8 @@ const receiptInfo = text => {
   const rucRead = rucLine.match(/\b\d{10,11}\b/)?.[0] || '';
   const ruc = completePeruvianRuc(rucRead);
   const plateLine = findLine(/\bplaca\b/i);
-  const plate = plateLine.match(/placa\s*:?\s*([A-Z0-9-]{5,12})/i)?.[1] || '';
+  const plateRaw = plateLine.match(/placa\s*:?\s*([A-Z0-9-]{5,12})/i)?.[1] || '';
+  const plate = normalizeReceiptPlate(plateRaw);
   const driverLine = findLine(/\b(chofer|conductor)\b/i);
   const driver = driverLine.replace(/^.*?(?:chofer|conductor)\s*:?\s*/i, '');
   const cardLine = findLine(/\b(?:tar\s*jeta|ar\s*jeta|card)\b/i);
@@ -181,9 +214,11 @@ const prepareReceiptImage = async (file, mode = 'wide') => {
   if (!window.createImageBitmap) return file;
   const image = await createImageBitmap(file);
   try {
-    const crop = mode === 'focus'
-      ? { x: 0.14, y: 0.10, width: 0.72, height: 0.86 }
-      : { x: 0.08, y: 0.06, width: 0.84, height: 0.90 };
+    const crop = mode === 'plate'
+      ? { x: 0.28, y: 0.66, width: 0.44, height: 0.18 }
+      : mode === 'focus'
+        ? { x: 0.14, y: 0.10, width: 0.72, height: 0.86 }
+        : { x: 0.08, y: 0.06, width: 0.84, height: 0.90 };
     const sourceX = Math.round(image.width * crop.x);
     const sourceY = Math.round(image.height * crop.y);
     const sourceWidth = Math.round(image.width * crop.width);
@@ -206,13 +241,16 @@ const prepareReceiptImage = async (file, mode = 'wide') => {
 const readReceiptWithOcr = async file => {
   const enhanced = await prepareReceiptImage(file, 'wide').catch(() => file);
   const focused = await prepareReceiptImage(file, 'focus').catch(() => file);
+  const plateImage = await prepareReceiptImage(file, 'plate').catch(() => file);
   const worker = await createWorker('eng');
   try {
     const original = await worker.recognize(file);
     const improved = enhanced === file ? { data: { text: '' } } : await worker.recognize(enhanced);
     await worker.setParameters({ tessedit_pageseg_mode: '11' });
     const focusedResult = focused === file ? { data: { text: '' } } : await worker.recognize(focused);
-    return [original.data.text, improved.data.text, focusedResult.data.text].filter(Boolean);
+    await worker.setParameters({ tessedit_pageseg_mode: '6' });
+    const plateResult = plateImage === file ? { data: { text: '' } } : await worker.recognize(plateImage);
+    return [original.data.text, improved.data.text, focusedResult.data.text, plateResult.data.text].filter(Boolean);
   } finally {
     await worker.terminate();
   }
