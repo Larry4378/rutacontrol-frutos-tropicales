@@ -131,43 +131,19 @@ const receiptInfo = text => {
   const cardLine = findLine(/\b(?:tar\s*jeta|ar\s*jeta|card)\b/i);
   const cardNumber = cardLine.match(/(?:(?:tar|ar)\s*jeta|card)\s*:?\s*([0-9]{8,})/i)?.[1] || '';
   const siteRaw = station || findLine(/(?:car\.?|av\.?|km\.?|sede|casma|piura|sullana|tambogrande)/i);
-  const site = /e\/?s\s+l[ae]sha/i.test(siteRaw) ? 'E/S Casma' : siteRaw;
+  const site = /e\s*\/?\s*s\s+(?:lasha|casha|casma)/i.test(siteRaw) ? 'E/S Casma' : siteRaw;
   const customer = valueAfterLabel(/.*?(?:raz[óo]n\s+social|raz\.?\s*soc\.?)/i);
   const address = valueAfterLabel(/.*?(?:direcc(?:i[oó]n)?|domicilio)/i);
   const payment = valueAfterLabel(/.*?(?:forma\s+de\s+pago|pago)/i);
   const shiftLine = findLine(/(?:turno|cara|cajero)/i);
   const sideLine = findLine(/(?:lado|isla)\s*:/i);
   const terminalLine = findLine(/\bterminal\b/i);
-  const standardDetails = [
-    ['receiptDocumentType', 'Tipo de comprobante', documentType],
-    ['receiptNumber', 'Número de comprobante / vale', documentNumber],
-    ['receiptIssuedAt', documentDate ? 'Fecha y hora de emisión' : 'Fecha y hora de emisión (revisar)', issuedAt],
-    ['receiptSite', 'Sede de abastecimiento', site],
-    ['receiptRuc', rucRead.length === 10 ? 'RUC del proveedor (completado)' : 'RUC del proveedor', ruc],
-    ['receiptPlate', 'Placa indicada', plate],
-    ['receiptDriver', 'Chofer indicado', driver],
+  const details = [
+    ['receiptSite', 'Lugar / sede', site],
+    ['receiptNumber', 'Número de vale', documentNumber],
+    ['receiptIssuedAt', 'Fecha de emisión', issuedAt],
     ['cardNumber', 'Número de tarjeta', cardNumber],
-    ['unitPrice', 'Precio por galón S/', Number.isFinite(price) && price > 0 && price < 100 ? String(price) : ''],
-    ['receiptCustomer', 'Razón social / cliente', customer],
-    ['receiptAddress', 'Dirección indicada', address],
-    ['receiptPayment', 'Forma de pago', payment],
-    ['receiptShift', 'Turno / cara / cajero', shiftLine],
-    ['receiptSide', 'Lado / isla', sideLine],
-    ['receiptTerminal', 'Terminal', terminalLine]
   ].filter(([, , value]) => value).map(([key, label, value]) => ({ key, label, value }));
-  const standardLabels = /^(?:tipo|n[úu]mero|fecha|sede|ruc|placa|chofer|n[úu]mero de tarjeta|precio|raz[oó]n|direcci[oó]n|forma de pago|turno|lado|terminal)/i;
-  const additionalDetails = lines.reduce((items, line) => {
-    const match = line.match(/^([a-záéíóúñ][a-záéíóúñ0-9 .\/-]{1,38})\s*[:=]\s*(.{1,90})$/i);
-    if (!match) return items;
-    const label = match[1].replace(/\s+/g, ' ').trim();
-    const value = match[2].trim();
-    const safeExtraLabel = /^(?:op(?:eraci[oó]n)?\s*gravadas?|sub\s*total|igv|descuento|vuelto|autorizaci[oó]n|orden(?:\s+de\s+compra)?|c[oó]digo(?:\s+de\s+operaci[oó]n)?|serie|surtidor)$/i;
-    if (!value || !safeExtraLabel.test(label) || standardLabels.test(label)) return items;
-    const safeKey = `receiptExtra_${label.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '_')}`;
-    if (!items.some(detail => detail.key === safeKey)) items.push({ key: safeKey, label, value });
-    return items;
-  }, []);
-  const details = [...standardDetails, ...additionalDetails];
   return { total, provider, product, gallons, odometer, plate, documentDate, details, hasUsefulData: Boolean(provider || product || Number.isFinite(gallons) || Number.isFinite(odometer) || Number.isFinite(total) || details.length) };
 };
 
@@ -963,24 +939,19 @@ function FuelModalReceipt({ record = {}, data, assignedVehicleId = '', onClose, 
 
       <section className="fuel-receipt-card">
         <div className="fuel-receipt-heading">
-          <div><p className="eyebrow">PASO 2 · DATOS DETECTADOS</p><b>Revisa solo los datos de este comprobante.</b></div>
+          <div><p className="eyebrow">PASO 2 · DATOS DEL COMPROBANTE</p><b>Revisa y corrige solo los datos necesarios.</b></div>
         </div>
         <div className="fuel-receipt-fields">
-          <div className="field"><label>Grifo / proveedor</label><input required value={form.provider || ''} onChange={event => change('provider', event.target.value)} placeholder="Ejemplo: COESTI · E/S Casma" /></div>
-          <div className="field"><label>Producto</label><input value={form.product || ''} onChange={event => change('product', event.target.value)} placeholder="Ejemplo: Diesel B5" /></div>
-          <div className="field"><label>Galones abastecidos</label><input required type="number" min="0" step="0.001" value={form.gallons ?? form.liters ?? ''} onChange={event => change('gallons', event.target.value)} placeholder="Ejemplo: 14.641" /></div>
-          <div className="field"><label>Monto final / costo total S/</label><input required type="number" min="0" step="0.01" value={form.cost || ''} onChange={event => change('cost', event.target.value)} placeholder="Ejemplo: 250.00" /></div>
-          <div className="field full"><label>Kilometraje indicado</label><input type="number" min="0" step="0.1" value={form.km || ''} onChange={event => change('km', event.target.value)} placeholder="Se completa desde el ticket u odómetro" /></div>
+          <div className="field"><label>Proveedor</label><input required value={form.provider || ''} onChange={event => change('provider', event.target.value)} placeholder="Ejemplo: COESTI S.A." /></div>
+          <div className="field"><label>Lugar / sede</label><input value={form.receiptSite || ''} onChange={event => changeDetail('receiptSite', event.target.value)} placeholder="Ejemplo: E/S Casma" /></div>
+          <div className="field"><label>Número de vale</label><input value={form.receiptNumber || ''} onChange={event => changeDetail('receiptNumber', event.target.value)} placeholder="Ejemplo: U254-00019019" /></div>
+          <div className="field"><label>Fecha de emisión</label><input value={form.receiptIssuedAt || ''} onChange={event => changeDetail('receiptIssuedAt', event.target.value)} placeholder="Ejemplo: 17/08/2026 17:16" /></div>
+          <div className="field"><label>Cantidad de galones abastecidos</label><input required type="number" min="0" step="0.001" value={form.gallons ?? form.liters ?? ''} onChange={event => change('gallons', event.target.value)} placeholder="Ejemplo: 14.641" /></div>
+          <div className="field"><label>Producto (gasolina o petróleo)</label><input value={form.product || ''} onChange={event => change('product', event.target.value)} placeholder="Ejemplo: Diesel B5 o Gasohol" /></div>
+          <div className="field"><label>Número de tarjeta</label><input value={form.cardNumber || ''} onChange={event => changeDetail('cardNumber', event.target.value)} placeholder="Se completa desde el comprobante" /></div>
+          <div className="field"><label>Kilometraje</label><input type="number" min="0" step="0.1" value={form.km || ''} onChange={event => change('km', event.target.value)} placeholder="Se completa desde el comprobante" /></div>
+          <div className="field full"><label>Monto total S/ <small>(si figura en el comprobante)</small></label><input type="number" min="0" step="0.01" value={form.cost || ''} onChange={event => change('cost', event.target.value)} placeholder="Ejemplo: 250.00" /></div>
         </div>
-        {(form.documentDetails || []).length > 0 && <details open className="document-receipt-details">
-          <summary>Datos adicionales identificados en este comprobante</summary>
-          <div className="fuel-receipt-fields document-fields">
-            {(form.documentDetails || []).map(detail => <div className={`field ${detail.key === 'cardNumber' ? 'full' : ''}`} key={detail.key}>
-              <label>{detail.label}</label>
-              <input value={detail.value || ''} onChange={event => changeDetail(detail.key, event.target.value)} />
-            </div>)}
-          </div>
-        </details>}
         <p className="fuel-receipt-note">La lectura es automática, pero siempre puedes corregir los valores antes de guardar.</p>
       </section>
 
