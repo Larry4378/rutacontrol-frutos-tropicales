@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Frutos Tropicales">
+  <rect width="1024" height="1024" rx="224" fill="#17633c"/>
+  <defs>
+    <linearGradient id="fruit" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffe071"/>
+      <stop offset="0.55" stop-color="#f7b524"/>
+      <stop offset="1" stop-color="#e78616"/>
+    </linearGradient>
+  </defs>
+  <path d="M505 243c51-78 140-111 232-83-23 88-92 147-190 161z" fill="#b8df4f"/>
+  <path d="M491 265c-163 28-274 174-246 332 27 150 150 243 302 218 150-25 252-160 226-307-24-138-139-249-282-243Z" fill="url(#fruit)"/>
+  <path d="M488 258c-19 54-21 98-6 134" fill="none" stroke="#b8df4f" stroke-width="30" stroke-linecap="round"/>
+  <path d="M354 613c85 42 187 44 281 1" fill="none" stroke="#17633c" stroke-width="28" stroke-linecap="round" opacity=".78"/>
+  <circle cx="420" cy="517" r="28" fill="#17633c" opacity=".78"/>
+  <circle cx="588" cy="517" r="28" fill="#17633c" opacity=".78"/>
+</svg>
