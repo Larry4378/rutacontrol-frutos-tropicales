@@ -304,7 +304,7 @@ function App() {
     <aside className="sidebar"><div className="company-name">FRUTOS TROPICALES<br/><span>EXPORT. PERÚ</span></div><div className="brand"><span className="brand-mark">F</span><span>FTP - ODOMETRO</span></div><nav>{nav.map(([key, icon, label]) => <button key={key} className={`nav-link ${view === key ? 'active' : ''}`} onClick={() => { setView(key); setModal(null); }}>{icon}<span>{label}</span></button>)}</nav><div className="sidebar-note">{session.user.email}<br/><small>{driverPreview?'Vista de chofer · Administración conservada':'Sesión segura · Administrador'}</small>{profile?.role==='admin'&&<button className="sidebar-preview" onClick={()=>{setDriverPreview(value=>!value);setView('dashboard');setModal(null);}}>{driverPreview?'↩ Volver a administrador':'◉ Vista de chofer'}</button>}<button className="sidebar-logout" onClick={() => supabase.auth.signOut()}>↪ Salir</button></div></aside>
     <main className={modal ? 'modal-open' : ''}>{error && <p className="sync-error">{error}</p>}<header><div><p className="eyebrow">FRUTOS TROPICALES EXPORT. PERÚ · CONTROL VEHICULAR</p><h1>{title}</h1></div><button className="mobile-logout" onClick={() => supabase.auth.signOut()}>↪ Cerrar sesión</button></header>
       {view === 'dashboard' && <Dashboard data={data} km={tripsKm} permissions={profile?.role === 'driver' && !driverPreview ? driverPermissions : {departure:true,arrival:true}} driverName={profile?.role === 'driver' ? profile.full_name : ''} onGo={setView} onDeparture={() => setModal({type:'quickDeparture'})} onReturn={() => setModal({type:'quickReturn'})} onTripUpdate={record => update('trips',record)} tripForm={modal?.type === 'quickDeparture' ? <DepartureGpsRequired data={data} driverName={profile?.role === 'driver' ? profile.full_name : ''} driverId={profile?.role === 'driver' && !driverPreview ? profile.id : ''} assignedVehicleId={profile?.role === 'driver' && !driverPreview ? profile.permissions?.assignedVehicleId : ''} assignedVehicleLabel={profile?.role === 'driver' && !driverPreview ? profile.permissions?.assignedVehicleLabel : ''} onClose={() => setModal(null)} onSave={async record => { const saved={...record,...(window.departureEvidence||{}),departureDate:today(),departureTime:now()}; const registered=await update('trips',saved); if(registered)setModal(null); return registered; }} /> : modal?.type === 'quickReturn' ? <ArrivalSimple data={data} driverName={profile?.role === 'driver' && !driverPreview ? profile.full_name : ''} driverId={profile?.role === 'driver' && !driverPreview ? profile.id : ''} onClose={() => setModal(null)} onSave={async record => { const registered=await update('trips',{...record,returnDate:today(),returnTime:now()}); if(registered)setModal(null); return registered; }} /> : null} />}
-      {view === 'trips' && <List title="Historial de recorridos" text="Consulta, filtra y edita las salidas y llegadas registradas." hideAdd><Trips data={data} onEdit={record => setModal({type:'trip',record})} onDelete={record => remove('trips',record.id)} /></List>}
+      {view === 'trips' && <List title="Historial de recorridos" text="Consulta, filtra y edita las salidas y llegadas registradas." hideAdd><Trips data={data} drivers={drivers} profile={profile} onEdit={record => setModal({type:'trip',record})} onDelete={record => remove('trips',record.id)} /></List>}
       {view === 'maintenance' && <List title="Mantenimiento" text="Afinamiento, aceite, frenos, neumáticos y revisión técnica." onAdd={() => setModal({type:'maintenance'})}><Maintenance data={data} onEdit={record => setModal({type:'maintenance',record})} onDelete={record => remove('maintenance',record.id)} /></List>}
       {view === 'fuel' && <List title="Control de combustible" text="Registra litros, costo, kilometraje y comprobante." onAdd={() => setModal({type:'fuel'})}><Fuel data={data} onEdit={record => setModal({type:'fuel',record})} onDelete={record => remove('fuels',record.id)} /></List>}
       {view === 'vehicles' && <List title="Vehículos" text="Administra placa, odómetro y estado." onAdd={() => setModal({type:'vehicle'})}><Vehicles data={data} onEdit={record => setModal({type:'vehicle',record})} onDelete={record => remove('vehicles',record)} /></List>}
@@ -426,16 +426,24 @@ const vehicleName=(data,vehicleId)=>data.vehicles.find(v=>v.id===vehicleId)?.pla
 const Actions=({onEdit,onDelete})=><><button className="edit" onClick={onEdit}>Editar</button><button className="delete" onClick={onDelete}>×</button></>;
 const VehicleActions=({onEdit,onDelete})=><><button className="edit" onClick={onEdit}>Editar</button><button className="delete" title="Solicita la placa antes de eliminar" onClick={onDelete}>Eliminar…</button></>;
 function Table({heads,children}) { return <div className="panel table-panel"><table><thead><tr>{heads.map(head=><th key={head}>{head}</th>)}</tr></thead><tbody>{children}</tbody></table></div>; }
-function Trips({data,onEdit,onDelete}) {
+function Trips({data,drivers=[],profile,onEdit,onDelete}) {
   const [filters,setFilters]=useState({search:'',date:'',vehicleId:'',driver:'',status:''});
   const [photo,setPhoto]=useState(null);
   useEffect(()=>()=>{if(photo?.url) URL.revokeObjectURL(photo.url)},[photo?.url]);
+  const driverName = trip => {
+    const profileId = String(trip.driverProfileId || trip.driver || '');
+    const registeredDriver = drivers.find(driver => String(driver.id) === profileId);
+    if (registeredDriver?.full_name) return registeredDriver.full_name;
+    if (profile && String(profile.id) === profileId && profile.full_name) return profile.full_name;
+    return trip.driverName || trip.driver || 'Sin conductor registrado';
+  };
   const filtered=data.trips.filter(t=>{
     const query=filters.search.trim().toLowerCase();
-    const searchable=[vehicleName(data,t.vehicleId),t.driver,t.origin,t.destination].join(' ').toLowerCase();
-    return (!query||searchable.includes(query))&&(!filters.date||t.departureDate===filters.date)&&(!filters.vehicleId||t.vehicleId===filters.vehicleId)&&(!filters.driver||t.driver===filters.driver)&&(!filters.status||(filters.status==='En ruta'?!t.endKm:!!t.endKm));
+    const displayDriver=driverName(t);
+    const searchable=[vehicleName(data,t.vehicleId),displayDriver,t.origin,t.destination].join(' ').toLowerCase();
+    return (!query||searchable.includes(query))&&(!filters.date||t.departureDate===filters.date)&&(!filters.vehicleId||t.vehicleId===filters.vehicleId)&&(!filters.driver||displayDriver===filters.driver)&&(!filters.status||(filters.status==='En ruta'?!t.endKm:!!t.endKm));
   });
-  const drivers=[...new Set(data.trips.map(t=>t.driver).filter(Boolean))];
+  const driverNames=[...new Set(data.trips.map(driverName).filter(Boolean))];
   const showOdometerPhoto=async (trip,stage)=>{
     const stageLabel=stage==='return'?'llegada':'salida';
     setPhoto({loading:true});
@@ -451,22 +459,22 @@ function Trips({data,onEdit,onDelete}) {
       alert(`No se pudo abrir la foto del odómetro de ${stageLabel}: ${downloadError?.message || 'archivo no disponible'}`);
       return;
     }
-    setPhoto({url:URL.createObjectURL(file),driver:trip.driver,vehicle:vehicleName(data,trip.vehicleId),stageLabel});
+    setPhoto({url:URL.createObjectURL(file),driver:driverName(trip),vehicle:vehicleName(data,trip.vehicleId),stageLabel});
   };
   return <>
     <div className="trip-filters">
       <input aria-label="Buscar recorridos" placeholder="Buscar placa, chofer, origen o destino" value={filters.search} onChange={e=>setFilters({...filters,search:e.target.value})}/>
       <input aria-label="Filtrar por fecha" type="date" value={filters.date} onChange={e=>setFilters({...filters,date:e.target.value})}/>
       <select aria-label="Filtrar por vehículo" value={filters.vehicleId} onChange={e=>setFilters({...filters,vehicleId:e.target.value})}><option value="">Todos los vehículos</option>{data.vehicles.map(v=><option value={v.id} key={v.id}>{v.plate}</option>)}</select>
-      <select aria-label="Filtrar por chofer" value={filters.driver} onChange={e=>setFilters({...filters,driver:e.target.value})}><option value="">Todos los choferes</option>{drivers.map(driver=><option key={driver}>{driver}</option>)}</select>
+      <select aria-label="Filtrar por chofer" value={filters.driver} onChange={e=>setFilters({...filters,driver:e.target.value})}><option value="">Todos los choferes</option>{driverNames.map(driver=><option key={driver}>{driver}</option>)}</select>
       <select aria-label="Filtrar por estado" value={filters.status} onChange={e=>setFilters({...filters,status:e.target.value})}><option value="">Todos los estados</option><option>En ruta</option><option>Finalizado</option></select>
     </div>
     <Table heads={['Salida','Vehículo','Chofer','Origen → destino','Odómetro','Total','']}>
       {filtered.slice().reverse().map(t=><tr key={t.id}>
         <td>{date(t.departureDate)}<br/><span>{t.departureTime}</span></td>
         <td>{vehicleName(data,t.vehicleId)}</td>
-        <td><div className="trip-driver-evidence"><span>{t.driver}</span><div className="trip-evidence-actions"><button type="button" className="text-button" onClick={()=>showOdometerPhoto(t,'departure')}>Foto salida</button>{t.endKm&&<button type="button" className="text-button" onClick={()=>showOdometerPhoto(t,'return')}>Foto llegada</button>}</div></div></td>
-        <td>{t.origin} → {t.destination}</td>
+        <td><div className="trip-driver-evidence"><b className="trip-driver-name">{driverName(t)}</b><div className="trip-evidence-actions"><button type="button" className="text-button" onClick={()=>showOdometerPhoto(t,'departure')}>Foto salida</button>{t.endKm&&<button type="button" className="text-button" onClick={()=>showOdometerPhoto(t,'return')}>Foto llegada</button>}</div></div></td>
+        <td><div className="trip-route"><div><small>Origen</small><span>{t.origin || 'No registrado'}</span></div><i>→</i><div><small>Destino</small><span>{t.destination || 'Pendiente'}</span></div></div></td>
         <td>{t.startKm} → {t.endKm || 'Pendiente'}</td>
         <td>{t.endKm ? `${Number(t.endKm)-Number(t.startKm)} km` : <span className="badge warn">En ruta</span>}</td>
         <td><Actions onEdit={()=>onEdit(t)} onDelete={()=>onDelete(t)}/></td>
