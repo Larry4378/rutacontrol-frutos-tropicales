@@ -59,31 +59,52 @@ const receiptNumber = value => {
   return Number(separators.length === 1 && decimals <= 2 ? raw.replace(',', '.') : raw.replace(/[.,]/g, ''));
 };
 const receiptInfo = text => {
-  const lines = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  const lines = text.split(/\r?\n/).map(line => line.trim().replace(/\s+/g, ' ')).filter(Boolean);
+  const findLine = expression => lines.find(line => expression.test(line)) || '';
   const totalIndex = lines.findIndex(line => /(monto\s*final|costo\s*total|importe\s*total|total\s*(a\s*pagar|venta)?)/i.test(line));
   const totalCandidates = (totalIndex >= 0 ? lines.slice(totalIndex, totalIndex + 3) : lines).join(' ').match(/\d{1,5}[.,]\d{2}\b/g) || [];
   const totals = totalCandidates.map(value => Number(value.replace(',', '.'))).filter(value => value > 0);
   const total = totals.length ? Math.max(...totals) : NaN;
-  const company = lines.find(line => /(coesti|primax|repsol|petroperu|puma|pecsa|full|grifo|estaci[oó]n)/i.test(line)) || '';
-  const station = lines.find(line => /\b(e\/?s|estaci[oó]n|grifo)\b/i.test(line) && line !== company) || '';
-  const provider = [company, station].filter(Boolean).join(' · ').replace(/^(grifo|estaci[oó]n(?: de servicio)?)\s*[:.-]?\s*/i, '');
-  const product = lines.find(line => /(diesel|gasohol|gasolina|biodiesel|gnv|glp)/i.test(line)) || '';
-  const gallonLine = lines.find(line => /\b(gal(?:ones)?|gals?|ugl|gl)\b/i.test(line)) || '';
-  const gallonsAfterUnit = gallonLine.match(/(?:gal(?:ones)?|gals?|ugl|gl)\s*[:.]?\s*(\d{1,4}(?:[.,]\d{1,3})?)/i)?.[1];
-  const gallonNumbers = gallonLine.match(/\d{1,4}(?:[.,]\d{1,3})?/g) || [];
-  const gallons = receiptNumber(gallonsAfterUnit || gallonNumbers.at(-1));
-  const odometerLine = lines.find(line => /(kilometraje|od[oó]metro|\bodo\b)/i.test(line)) || '';
+  const company = findLine(/(coesti|primax|repsol|petroperu|puma|pecsa|full|elizabeth|huertas|corporaci[oó]n|abastecedor|grifo|estaci[oó]n)/i);
+  const station = findLine(/\b(e\/?s|eess|estaci[oó]n de servicio|grifo)\b/i);
+  const provider = [company, station !== company ? station : ''].filter(Boolean).join(' · ').replace(/^(grifo|estaci[oó]n(?: de servicio)?)\s*[:.-]?\s*/i, '');
+  const productLine = findLine(/(g-?premium|max-?d|diesel|gasohol|gasolina|biodiesel|gnv|glp)/i);
+  const product = productLine.match(/(?:g-?premium|max-?d\s+diesel(?:\s+b\d+)?(?:\s+s\d+)?(?:\s+uv)?|gasohol(?:\s+(?:regular|premium|super))?|gasolina(?:\s+\w+)?|diesel(?:\s+\w+)?|biodiesel|gnv|glp)/i)?.[0] || productLine;
+  const gallonLine = findLine(/\b(gal(?:ones)?|gals?|gll|ugl|gl)\b/i);
+  const gallonsBeforeUnit = gallonLine.match(/(\d{1,4}(?:[.,]\d{1,3})?)\s*(?:gal(?:ones)?|gals?|gll|ugl|gl)\b/i)?.[1];
+  const gallonsAfterUnit = gallonLine.match(/(?:gal(?:ones)?|gals?|gll|ugl|gl)\s*[:.]?\s*(\d{1,4}(?:[.,]\d{1,3})?)/i)?.[1];
+  const productNumbers = productLine.match(/\d{1,4}(?:[.,]\d{1,3})?/g) || [];
+  const productQuantity = productNumbers.length >= 3 ? productNumbers[0] : '';
+  const gallons = receiptNumber(gallonsBeforeUnit || gallonsAfterUnit || productQuantity);
+  const price = receiptNumber(productNumbers.length >= 3 ? productNumbers.at(-2) : '');
+  const odometerLine = findLine(/(kilometraje|od[oó]metro|\bodo\b|\bkm\s*:)/i);
   const odometer = receiptNumber(odometerLine.match(/[\d.,]{3,}/)?.[0]);
-  const isCoesti = /\bcoesti\b/i.test(lines.join(' '));
-  const coestiSite = lines.find(line => /\b(?:e\/?s|estaci[oó]n de servicio)\b/i.test(line)) || '';
-  const voucherLine = lines.find(line => /\b(?:n[°ºo]?|nro|numero|número)\b/i.test(line)) || '';
-  const voucherNumber = voucherLine.match(/([A-Z]\d{1,5}\s*-\s*\d{5,})/i)?.[1]?.replace(/\s/g, '') || '';
-  const issuedAt = lines.find(line => /\b\d{2}[\/-]\d{2}[\/-]\d{2,4}\s+\d{1,2}:\d{2}(?::\d{2})?\b/.test(line)) || '';
-  const plateLine = lines.find(line => /\bplaca\b/i.test(line)) || '';
+  const documentType = findLine(/\b(factura(?: de venta)?|boleta|nota de despacho|ticket|vale)\b/i);
+  const numberLine = findLine(/(?:n[°ºo]?|nro|numero|número)\s*[:.-]?\s*[a-z0-9]/i);
+  const documentNumber = numberLine.match(/([A-Z]{0,4}\d{1,5}\s*-?\s*\d{5,})/i)?.[1]?.replace(/\s/g, '') || '';
+  const issuedAt = findLine(/\b\d{2}[\/-]\d{2}[\/-]\d{2,4}\s+(?:hora\s*)?\d{1,2}:\d{2}(?::\d{2})?\b/i)
+    || findLine(/\b\d{1,2}\s+de\s+(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\s+de\s+\d{4}(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?\b/i);
+  const rucLine = findLine(/\br\.?u\.?c\.?\b/i);
+  const ruc = rucLine.match(/\b\d{11}\b/)?.[0] || '';
+  const plateLine = findLine(/\bplaca\b/i);
   const plate = plateLine.match(/placa\s*:?\s*([A-Z0-9-]{5,12})/i)?.[1] || '';
-  const cardLine = lines.find(line => /\btarjeta\b/i.test(line)) || '';
+  const driverLine = findLine(/\b(chofer|conductor)\b/i);
+  const driver = driverLine.replace(/^.*?(?:chofer|conductor)\s*:?\s*/i, '');
+  const cardLine = findLine(/\btarjeta\b/i);
   const cardNumber = cardLine.match(/(?:tarjeta)\s*:?\s*([0-9]{8,})/i)?.[1] || '';
-  return { total, provider, product, gallons, odometer, isCoesti, coestiSite, voucherNumber, issuedAt, plate, cardNumber, hasUsefulData: Boolean(provider || product || Number.isFinite(gallons) || Number.isFinite(odometer) || Number.isFinite(total)) };
+  const site = station || findLine(/(?:car\.?|av\.?|km\.?|sede|casma|piura|sullana|tambogrande)/i);
+  const details = [
+    ['receiptDocumentType', 'Tipo de comprobante', documentType],
+    ['receiptNumber', 'Número de comprobante / vale', documentNumber],
+    ['receiptIssuedAt', 'Fecha y hora de emisión', issuedAt],
+    ['receiptSite', 'Sede de abastecimiento', site],
+    ['receiptRuc', 'RUC del proveedor', ruc],
+    ['receiptPlate', 'Placa indicada', plate],
+    ['receiptDriver', 'Chofer indicado', driver],
+    ['cardNumber', 'Número de tarjeta', cardNumber],
+    ['unitPrice', 'Precio por galón S/', Number.isFinite(price) ? String(price) : '']
+  ].filter(([, , value]) => value).map(([key, label, value]) => ({ key, label, value }));
+  return { total, provider, product, gallons, odometer, plate, details, hasUsefulData: Boolean(provider || product || Number.isFinite(gallons) || Number.isFinite(odometer) || Number.isFinite(total) || details.length) };
 };
 
 const plateKey = value => String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -744,7 +765,11 @@ function FuelModalReceipt({ record = {}, data, assignedVehicleId = '', onClose, 
   const [status, setStatus] = useState('');
   const [hasReceipt, setHasReceipt] = useState(Boolean(record.receipt));
   const change = (key, value) => setForm(current => ({ ...current, [key]: value }));
-  const isCoestiReceipt = Boolean(form.coesti || /\bcoesti\b/i.test(form.provider || ''));
+  const changeDetail = (key, value) => setForm(current => ({
+    ...current,
+    [key]: value,
+    documentDetails: (current.documentDetails || []).map(detail => detail.key === key ? { ...detail, value } : detail),
+  }));
 
   const scanReceipt = async file => {
     if (!file) return;
@@ -761,16 +786,10 @@ function FuelModalReceipt({ record = {}, data, assignedVehicleId = '', onClose, 
       if (Number.isFinite(info.gallons) && info.gallons > 0 && info.gallons < 1000) change('gallons', String(info.gallons));
       if (Number.isFinite(info.odometer) && info.odometer > 0) change('km', String(info.odometer));
       if (Number.isFinite(info.total)) change('cost', info.total.toFixed(2));
-      change('coesti', info.isCoesti);
-      if (info.isCoesti) {
-        if (info.coestiSite) change('coestiSite', info.coestiSite);
-        if (info.voucherNumber) change('voucherNumber', info.voucherNumber);
-        if (info.issuedAt) change('receiptIssuedAt', info.issuedAt);
-        if (info.plate) change('receiptPlate', info.plate);
-        if (info.cardNumber) change('cardNumber', info.cardNumber);
-        const matchedVehicle = data.vehicles.find(vehicle => plateKey(vehicle.plate) === plateKey(info.plate));
-        if (matchedVehicle) change('vehicleId', matchedVehicle.id);
-      }
+      change('documentDetails', info.details || []);
+      (info.details || []).forEach(detail => change(detail.key, detail.value));
+      const matchedVehicle = data.vehicles.find(vehicle => plateKey(vehicle.plate) === plateKey(info.plate));
+      if (matchedVehicle) change('vehicleId', matchedVehicle.id);
       setStatus(info.hasUsefulData
         ? 'Comprobante leído. Revisa los datos antes de guardar.'
         : 'No se pudo reconocer el comprobante. Completa los campos manualmente.');
@@ -841,14 +860,13 @@ function FuelModalReceipt({ record = {}, data, assignedVehicleId = '', onClose, 
           <div className="field"><label>Monto final / costo total S/</label><input required type="number" min="0" step="0.01" value={form.cost || ''} onChange={event => change('cost', event.target.value)} placeholder="Ejemplo: 250.00" /></div>
           <div className="field full"><label>Kilometraje indicado</label><input type="number" min="0" step="0.1" value={form.km || ''} onChange={event => change('km', event.target.value)} placeholder="Se completa desde el ticket u odómetro" /></div>
         </div>
-        {isCoestiReceipt && <details open className="coesti-receipt-details">
-          <summary>Datos adicionales de Coesti</summary>
-          <div className="fuel-receipt-fields coesti-fields">
-            <div className="field"><label>Sede de abastecimiento</label><input value={form.coestiSite || ''} onChange={event => change('coestiSite', event.target.value)} placeholder="Ejemplo: E/S Casma" /></div>
-            <div className="field"><label>Número de vale</label><input value={form.voucherNumber || ''} onChange={event => change('voucherNumber', event.target.value)} placeholder="Ejemplo: V254-00019019" /></div>
-            <div className="field"><label>Fecha y hora de emisión</label><input value={form.receiptIssuedAt || ''} onChange={event => change('receiptIssuedAt', event.target.value)} placeholder="dd/mm/aaaa hh:mm:ss" /></div>
-            <div className="field"><label>Placa indicada</label><input value={form.receiptPlate || ''} onChange={event => change('receiptPlate', event.target.value)} placeholder="Placa del comprobante" /></div>
-            <div className="field full"><label>Número de tarjeta</label><input value={form.cardNumber || ''} onChange={event => change('cardNumber', event.target.value)} placeholder="Número de tarjeta Coesti" /></div>
+        {(form.documentDetails || []).length > 0 && <details open className="document-receipt-details">
+          <summary>Datos adicionales identificados en este comprobante</summary>
+          <div className="fuel-receipt-fields document-fields">
+            {(form.documentDetails || []).map(detail => <div className={`field ${detail.key === 'cardNumber' ? 'full' : ''}`} key={detail.key}>
+              <label>{detail.label}</label>
+              <input value={detail.value || ''} onChange={event => changeDetail(detail.key, event.target.value)} />
+            </div>)}
           </div>
         </details>}
         <p className="fuel-receipt-note">La lectura es automática, pero siempre puedes corregir los valores antes de guardar.</p>
