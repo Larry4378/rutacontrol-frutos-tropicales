@@ -890,6 +890,7 @@ function FuelModalReceipt({ record = {}, data, assignedVehicleId = '', onClose, 
     { key: 'receiptIssuedAt', label: 'Fecha de emisión', placeholder: 'Ejemplo: 17/08/2026 17:16' },
     { key: 'gallons', label: 'Cantidad de galones abastecidos', source: 'form', type: 'number', required: true, placeholder: 'Ejemplo: 14.641' },
     { key: 'product', label: 'Producto (gasolina o petróleo)', source: 'form', placeholder: 'Ejemplo: Diesel B5 o Gasohol' },
+    { key: 'receiptPlate', label: 'Placa indicada', placeholder: 'Se completa desde el comprobante' },
     { key: 'cardNumber', label: 'Número de tarjeta', placeholder: 'Se completa desde el comprobante' },
     { key: 'km', label: 'Kilometraje', source: 'form', type: 'number', placeholder: 'Se completa desde el comprobante' },
   ] : isHuertas ? [
@@ -941,12 +942,9 @@ function FuelModalReceipt({ record = {}, data, assignedVehicleId = '', onClose, 
       change('documentDetails', details);
       details.forEach(detail => change(detail.key, detail.value));
       if (matchedVehicle) change('vehicleId', matchedVehicle.id);
-      const pendingFields = [
-        !Number.isFinite(info.gallons) && 'galones',
-        !Number.isFinite(info.total) && 'monto total',
-      ].filter(Boolean);
+      const pendingFields = [!Number.isFinite(info.gallons) && 'galones'].filter(Boolean);
       setStatus(info.hasUsefulData
-        ? `Comprobante leído. Se identificaron ${info.details.length} datos adicionales; revisa antes de guardar.${pendingFields.length ? ` No se pudo confirmar: ${pendingFields.join(' y ')}.` : ''}`
+        ? `Comprobante leído. Revisa los campos antes de guardar.${pendingFields.length ? ` No se pudo confirmar: ${pendingFields.join(' y ')}.` : ''}`
         : 'No se pudo reconocer el comprobante. Completa los campos manualmente.');
     } catch {
       setStatus('No se pudo leer el comprobante. Completa los datos manualmente.');
