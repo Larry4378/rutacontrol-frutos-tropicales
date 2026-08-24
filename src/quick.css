@@ -5,7 +5,7 @@
 @keyframes route-pulse{0%,100%{box-shadow:0 0 0 5px #1685562b}50%{box-shadow:0 0 0 9px #16855612}}@media(max-width:700px){.route-section-title{display:block;padding:0 2px}.route-map-shell{margin:0;border-radius:16px}.route-map{height:390px;min-height:390px}.route-map-status{top:12px;left:12px;padding:9px 11px}.route-trip-sheet{padding:15px 18px 17px}.map-recenter-button{right:12px;bottom:20px}.route-map .leaflet-control-zoom{margin-right:12px;margin-bottom:18px}.route-note{margin:10px 0 0;padding:10px 12px;border-radius:10px}}
 .route-start-icon{background:transparent;border:0}.route-start-icon span{display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:#1f9d55;color:white;font-size:17px;border:3px solid white;box-shadow:0 2px 7px #123c3155}
 /* El icono se desplaza de forma continua entre lecturas GPS válidas. */
-.moving-vehicle-icon{transition:transform 3.5s linear}
+.moving-vehicle-icon{transition:none!important}
 /* Sin tarjeta inferior: los controles se apoyan directamente sobre el mapa. */
 .route-map .leaflet-control-zoom{margin-bottom:18px}.map-recenter-button{bottom:20px}@media(max-width:700px){.map-recenter-button{bottom:20px}.route-map .leaflet-control-zoom{margin-bottom:18px}}
 /* Sin salida activa, el mapa queda como una vista breve y ordenada. */

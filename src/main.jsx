@@ -29,11 +29,14 @@ const gpsRouteKm = points => (points || []).slice(1).reduce((total, point, index
 // El GPS de un teléfono puede enviar saltos al recuperar señal. Solo se
 // conservan puntos con precisión razonable y desplazamientos físicamente posibles.
 const shouldKeepGpsPoint = (previous, point) => {
-  if (!Number.isFinite(point.lat) || !Number.isFinite(point.lng) || point.accuracy > 120) return false;
+  if (!Number.isFinite(point.lat) || !Number.isFinite(point.lng) || point.accuracy > 80) return false;
   if (!previous) return true;
+  const previousTimestamp = Number(previous.timestamp || Date.parse(previous.at || ''));
+  // Un teléfono puede entregar una posición antigua después de recuperar señal.
+  // Nunca debe dibujarse después del último punto válido porque adelantaría la línea.
+  if (Number.isFinite(previousTimestamp) && point.timestamp <= previousTimestamp) return false;
   const distance = gpsDistanceMeters(previous, point);
-  const previousTime = Date.parse(previous.at || '');
-  const seconds = Number.isFinite(previousTime) ? Math.max(0, (point.timestamp - previousTime) / 1000) : 0;
+  const seconds = Number.isFinite(previousTimestamp) ? Math.max(0, (point.timestamp - previousTimestamp) / 1000) : 0;
   const uncertainty = Math.max(10, Number(previous.accuracy || 0) + Number(point.accuracy || 0));
   // Ignora pequeñas variaciones cuando el vehículo está detenido.
   if (seconds < 4 && distance < Math.max(12, Math.min(40, uncertainty * 0.45))) return false;
