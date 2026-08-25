@@ -17,6 +17,16 @@
 
 
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
-        <item name="android:background">@drawable/splash</item>
+        <!--
+          El ícono de la aplicación sigue siendo el corporativo en el celular,
+          pero no se reutiliza como pantalla de inicio. Android mostrará solo
+          este fondo un instante y enseguida cargará la bienvenida FTP - ODOMETRO.
+        -->
+        <item name="android:background">@color/launch_splash_background</item>
+        <item name="android:windowBackground">@color/launch_splash_background</item>
+        <item name="windowSplashScreenBackground">@color/launch_splash_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_invisible</item>
+        <item name="windowSplashScreenAnimationDuration">0</item>
+        <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
     </style>
 </resources>
