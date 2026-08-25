@@ -1009,7 +1009,12 @@ function MaintenanceFormHelper({active}) {
     steps?.after(clock);
 
     const fields = [...form.querySelectorAll('.field')];
+    const serviceField = fields.find(field => field.querySelector('label')?.textContent === 'Servicio realizado');
     const kmField = fields.find(field => field.querySelector('label')?.textContent === 'Kilometraje del servicio');
+    const notesField = fields.find(field => field.querySelector('label')?.textContent === 'Observaciones');
+    const serviceSelect = serviceField?.querySelector('select');
+    const notesLabel = notesField?.querySelector('label');
+    const notesInput = notesField?.querySelector('textarea');
     const applyKmHelp = () => {
       const kmInput = kmField?.querySelector('input');
       if (!kmInput) return;
@@ -1023,10 +1028,23 @@ function MaintenanceFormHelper({active}) {
       }
     };
     applyKmHelp();
+    const syncOtherService = () => {
+      const isOther = serviceSelect?.value === 'Otro';
+      if (!notesField || !notesLabel || !notesInput) return;
+      notesField.hidden = !isOther;
+      notesLabel.textContent = isOther ? 'Describe el servicio realizado' : 'Observaciones';
+      notesInput.required = isOther;
+      notesInput.placeholder = isOther
+        ? 'Ejemplo: cambio de cadena, reparación de luces o trabajo realizado.'
+        : 'Ejemplo: cambio de filtros, estado de neumáticos o recomendaciones del taller.';
+    };
+    syncOtherService();
+    const scheduleOtherServiceSync = () => window.setTimeout(syncOtherService, 0);
+    serviceSelect?.addEventListener('change', scheduleOtherServiceSync);
     const observer = kmField ? new MutationObserver(applyKmHelp) : null;
     observer?.observe(kmField, { childList: true, subtree: true, attributes: true, attributeFilter: ['placeholder', 'step'] });
     const timer = window.setInterval(refreshClock, 1000);
-    return () => { window.clearInterval(timer); observer?.disconnect(); clock.remove(); kmField?.querySelector('.maintenance-km-help')?.remove(); };
+    return () => { window.clearInterval(timer); observer?.disconnect(); serviceSelect?.removeEventListener('change', scheduleOtherServiceSync); clock.remove(); kmField?.querySelector('.maintenance-km-help')?.remove(); };
   }, [active]);
   return null;
 }
