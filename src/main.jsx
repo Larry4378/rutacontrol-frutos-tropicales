@@ -595,10 +595,17 @@ function App() {
       const recordId = record.id || id();
       let receiptPath = record.receiptPath || null;
       if (record.receiptFile) {
-        const extension = (record.receiptFile.name?.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+        let receiptFile;
+        try {
+          receiptFile = await prepareImageForUpload(record.receiptFile);
+        } catch (error) {
+          alert(`No se pudo preparar la foto del comprobante: ${error.message}`);
+          return false;
+        }
+        const extension = (receiptFile.name?.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
         receiptPath = `fuel/${user.id}/${recordId}/${crypto.randomUUID()}.${extension}`;
-        const { error: uploadError } = await supabase.storage.from('vehicle-evidence').upload(receiptPath, record.receiptFile, {
-          contentType: record.receiptFile.type || 'image/jpeg', upsert: false,
+        const { error: uploadError } = await supabase.storage.from('vehicle-evidence').upload(receiptPath, receiptFile, {
+          contentType: receiptFile.type || 'image/jpeg', upsert: false,
         });
         if (uploadError) { alert(`No se pudo guardar la foto del comprobante: ${uploadError.message}`); return false; }
       }
@@ -1064,11 +1071,19 @@ function FuelModalReceipt({ record = {}, data, assignedVehicleId = '', isAdmin =
   const change = (key, value) => setForm(current => ({ ...current, [key]: value }));
   const scanReceipt = async file => {
     if (!file) return;
-    setReceiptFile(file);
-    change('receipt', file.name);
-    setStatus('Foto lista para enviar.');
+    let preparedFile;
     try {
-      const readings = await readReceiptWithOcr(file);
+      setStatus('Comprimiendo foto…');
+      preparedFile = await prepareImageForUpload(file);
+    } catch (error) {
+      setStatus(`No se aceptó la foto: ${error.message}`);
+      return;
+    }
+    setReceiptFile(preparedFile);
+    change('receipt', preparedFile.name);
+    setStatus(`Foto lista para enviar (${imageSizeLabel(preparedFile.size)}).`);
+    try {
+      const readings = await readReceiptWithOcr(preparedFile);
       const info = mergeReceiptInfo(readings);
       const exactVehicle = data.vehicles.find(vehicle => plateKey(vehicle.plate) === plateKey(info.plate));
       const approximateVehicle = !exactVehicle && info.plate ? findVehicleFromPlateOcr(info.plate, data.vehicles)?.vehicle : null;
@@ -1152,6 +1167,57 @@ function VehicleModal({ record = {}, onClose, onSave }) {
 }
 
 const odometerStoragePaths = new WeakMap();
+const preparedImageFiles = new WeakSet();
+const MAX_IMAGE_SOURCE_BYTES = 12 * 1024 * 1024;
+const MAX_IMAGE_UPLOAD_BYTES = 3 * 1024 * 1024;
+const MAX_IMAGE_SIDE = 1600;
+const SUPPORTED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+
+const imageSizeLabel = bytes => `${Math.max(1, Math.round(bytes / 1024))} KB`;
+const isSupportedImage = file => {
+  if (!file) return false;
+  return SUPPORTED_IMAGE_TYPES.has(String(file.type || '').toLowerCase()) || /\.(jpe?g|png|webp)$/i.test(file.name || '');
+};
+
+// La foto se reduce en el propio teléfono antes de enviarse a Storage. Así la
+// base de datos solo conserva la ruta y los archivos no crecen sin control.
+const prepareImageForUpload = async originalFile => {
+  if (!originalFile) throw new Error('Selecciona una fotografía.');
+  if (preparedImageFiles.has(originalFile)) return originalFile;
+  if (!isSupportedImage(originalFile)) throw new Error('Solo se permiten fotografías JPG, PNG o WebP. No se aceptan videos.');
+  if (originalFile.size > MAX_IMAGE_SOURCE_BYTES) throw new Error('La fotografía supera 12 MB. Toma otra con menor resolución.');
+
+  const objectUrl = URL.createObjectURL(originalFile);
+  try {
+    const image = await new Promise((resolve, reject) => {
+      const element = new Image();
+      element.onload = () => resolve(element);
+      element.onerror = () => reject(new Error('No se pudo preparar esta fotografía.'));
+      element.src = objectUrl;
+    });
+    const scale = Math.min(1, MAX_IMAGE_SIDE / Math.max(image.naturalWidth || image.width, image.naturalHeight || image.height));
+    const width = Math.max(1, Math.round((image.naturalWidth || image.width) * scale));
+    const height = Math.max(1, Math.round((image.naturalHeight || image.height) * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    canvas.getContext('2d', { alpha: false }).drawImage(image, 0, 0, width, height);
+    let quality = 0.8;
+    let blob = null;
+    while (quality >= 0.5) {
+      blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', quality));
+      if (blob && blob.size <= MAX_IMAGE_UPLOAD_BYTES) break;
+      quality -= 0.1;
+    }
+    if (!blob || blob.size > MAX_IMAGE_UPLOAD_BYTES) throw new Error('No se pudo reducir la foto a menos de 3 MB. Toma otra más cerca y enfocada.');
+    const baseName = (originalFile.name || 'foto').replace(/\.[^.]+$/, '').replace(/[^a-z0-9_-]+/gi, '-').replace(/^-+|-+$/g, '') || 'foto';
+    const file = new File([blob], `${baseName}.jpg`, { type: 'image/jpeg', lastModified: Date.now() });
+    preparedImageFiles.add(file);
+    return file;
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+};
 
 const readOdometerKm = text => {
   const raw = String(text || '');
@@ -1215,15 +1281,24 @@ const uploadOdometerPhoto = async (file, stage) => {
 function PhotoSource({ onChange, accept = 'image/*', withCamera = true }) {
   const [fileName, setFileName] = useState('');
   const select = async event => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+    const originalFile = event.target.files?.[0];
+    if (!originalFile) return;
+    let file;
+    try {
+      setFileName('Preparando foto…');
+      file = await prepareImageForUpload(originalFile);
+    } catch (error) {
+      setFileName(`No se aceptó la foto: ${error.message}`);
+      event.currentTarget.value = '';
+      return;
+    }
     const labelText = event.currentTarget.closest('.field')?.querySelector(':scope > label')?.textContent?.toLowerCase() || '';
     const stage = labelText.includes('odómetro') && labelText.includes('salida') ? 'departure' : labelText.includes('odómetro') && (labelText.includes('final') || labelText.includes('retorno')) ? 'return' : '';
-    setFileName(stage ? 'Guardando foto en la nube…' : file.name);
+    setFileName(stage ? 'Guardando foto en la nube…' : `✓ Foto preparada: ${imageSizeLabel(file.size)}`);
     if (stage) {
       try {
         await uploadOdometerPhoto(file, stage);
-        setFileName(`✓ Foto guardada: ${file.name}`);
+        setFileName(`✓ Foto guardada: ${imageSizeLabel(file.size)}`);
       } catch (error) {
         setFileName(`Foto seleccionada, pero no se pudo guardar: ${error.message}`);
       }
