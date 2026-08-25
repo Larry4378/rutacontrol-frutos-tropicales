@@ -49,6 +49,13 @@ const shouldKeepGpsPoint = (previous, point) => {
 const isTripOpen = trip => (trip?.endKm === null || trip?.endKm === undefined || trip?.endKm === '') && trip?.status !== 'Finalizado';
 const today = () => { const local = new Date(); local.setMinutes(local.getMinutes() - local.getTimezoneOffset()); return local.toISOString().slice(0, 10); };
 const now = () => new Date().toTimeString().slice(0, 8);
+// Los odómetros pueden tener un decimal, pero nunca letras, signos ni exponentes.
+// Se normaliza también lo que se pega desde el portapapeles.
+const normalizeKilometerInput = value => {
+  const text = String(value ?? '').replace(',', '.').replace(/[^\d.]/g, '');
+  const decimalAt = text.indexOf('.');
+  return decimalAt < 0 ? text : `${text.slice(0, decimalAt + 1)}${text.slice(decimalAt + 1).replaceAll('.', '')}`;
+};
 const receiptNumber = value => {
   const raw = String(value || '').replace(/[^\d.,]/g, '');
   if (!raw) return NaN;
@@ -649,6 +656,7 @@ function App() {
   if (!session) return <Login error={error} onLogin={async (email, password) => { setError(''); const { error } = await supabase.auth.signInWithPassword({ email, password }); if (error) setError(error.message); }} onDriverLogin={async (accessCode, pin) => { setError(''); try { const response=await fetch('https://idwyvmhfyfsklykxmcdm.supabase.co/functions/v1/driver-login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({accessCode,pin})}); const result=await response.json().catch(()=>({})); if(!response.ok||result?.error) return setError(result?.error||'No se pudo iniciar sesión.'); const {error: sessionError}=await supabase.auth.setSession(result.session); if(sessionError)setError(sessionError.message); } catch { setError('No se pudo conectar con el acceso de chofer.'); } }} onRegister={async (name, email, password) => { setError(''); const { data: result, error } = await supabase.auth.signUp({ email, password, options: { data: { full_name: name } } }); if (error) setError(error.message); else if (!result.session) setError('Revisa tu correo para confirmar la cuenta y luego ingresa.'); }} />;
   return <>
     <DriverVehicleAssignment profile={profile} driverPreview={driverPreview} modal={modal}/>
+    <KilometerInputGuard />
     <MaintenanceFormHelper active={modal?.type === 'maintenance'} />
     <aside className="sidebar"><div className="company-name">FRUTOS TROPICALES<br/><span>EXPORT. PERÚ</span></div><div className="brand"><span className="brand-mark">F</span><span>FTP - ODOMETRO</span></div><nav>{nav.map(([key, icon, label]) => <button key={key} className={`nav-link ${view === key ? 'active' : ''}`} onClick={() => { setView(key); setModal(null); }}>{icon}<span>{label}</span></button>)}</nav><div className="sidebar-note">{session.user.email}<br/><small>{driverPreview?'Vista de chofer · Administración conservada':'Sesión segura · Administrador'}</small>{profile?.role==='admin'&&<button className="sidebar-preview" onClick={()=>{setDriverPreview(value=>!value);setView('dashboard');setModal(null);}}>{driverPreview?'↩ Volver a administrador':'◉ Vista de chofer'}</button>}<button className="sidebar-logout" onClick={() => supabase.auth.signOut()}>↪ Salir</button></div></aside>
     <main className={modal ? 'modal-open' : ''}>{error && <p className="sync-error">{error}</p>}<header><div><p className="eyebrow">FRUTOS TROPICALES EXPORT. PERÚ · CONTROL VEHICULAR</p><h1>{title}</h1></div><button className="mobile-logout" onClick={() => supabase.auth.signOut()}>↪ Cerrar sesión</button></header>
@@ -953,6 +961,33 @@ function Permissions({driver,vehicles,onSave}) {
   </div>;
 }
 function DriverVehicleAssignment(){return null;}
+function KilometerInputGuard() {
+  useEffect(() => {
+    const isKilometerField = input => {
+      if (!(input instanceof HTMLInputElement) || input.type === 'file') return false;
+      const label = input.closest('.field')?.querySelector('label')?.textContent || '';
+      return /kilometraje|od[oó]metro/i.test(label);
+    };
+    const preventLetters = event => {
+      if (isKilometerField(event.target) && event.data && /[^\d.,]/.test(event.data)) event.preventDefault();
+    };
+    const onlyKilometers = event => {
+      const input = event.target;
+      if (!isKilometerField(input)) return;
+      const value = normalizeKilometerInput(input.value);
+      if (value === input.value) return;
+      input.value = value;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    document.addEventListener('beforeinput', preventLetters, true);
+    document.addEventListener('input', onlyKilometers, true);
+    return () => {
+      document.removeEventListener('beforeinput', preventLetters, true);
+      document.removeEventListener('input', onlyKilometers, true);
+    };
+  }, []);
+  return null;
+}
 function MaintenanceFormHelper({active}) {
   useEffect(() => {
     if (!active) return undefined;
