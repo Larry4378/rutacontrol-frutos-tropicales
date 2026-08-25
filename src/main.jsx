@@ -49,6 +49,10 @@ const shouldKeepGpsPoint = (previous, point) => {
 const isTripOpen = trip => (trip?.endKm === null || trip?.endKm === undefined || trip?.endKm === '') && trip?.status !== 'Finalizado';
 const today = () => { const local = new Date(); local.setMinutes(local.getMinutes() - local.getTimezoneOffset()); return local.toISOString().slice(0, 10); };
 const now = () => new Date().toTimeString().slice(0, 8);
+const normalizePlace = value => String(value || '')
+  .toLocaleLowerCase('es-PE')
+  .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  .replace(/[^a-z0-9]/g, '');
 // Los odómetros pueden tener un decimal, pero nunca letras, signos ni exponentes.
 // Se normaliza también lo que se pega desde el portapapeles.
 const normalizeKilometerInput = value => {
@@ -1251,9 +1255,18 @@ function DepartureGpsRequired({ data, driverName = '', driverId = '', assignedVe
     setStatus('Obteniendo ubicación y dirección…');
     navigator.geolocation.getCurrentPosition(async position => {
       const { latitude, longitude, accuracy } = position.coords;
+      // El primer punto del recorrido es el origen real. Se conserva para
+      // impedir que una llegada se confirme en la misma ubicación.
+      const departurePoint = {
+        lat: latitude,
+        lng: longitude,
+        accuracy: Math.round(accuracy),
+        timestamp: Date.now(),
+        at: new Date().toISOString(),
+      };
       let origin = `GPS: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
       try { const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}`); const place = await response.json(); origin = place.display_name || origin; } catch {}
-      change('origin', origin); change('gpsAccuracy', Math.round(accuracy)); setGpsReady(true); setStatus('Origen GPS registrado correctamente.');
+      change('origin', origin); change('routePoints', [departurePoint]); change('gpsAccuracy', Math.round(accuracy)); setGpsReady(true); setStatus('Origen GPS registrado correctamente.');
     }, () => { setGpsReady(false); setStatus('Debes permitir la ubicación GPS para confirmar la salida.'); }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
   };
   const submit = event => {
@@ -1294,8 +1307,16 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
     setGpsStatus('Obteniendo ubicación y dirección…');
     navigator.geolocation.getCurrentPosition(async position => {
       const { latitude, longitude, accuracy } = position.coords;
+      const arrivalPoint = {
+        lat: latitude,
+        lng: longitude,
+        accuracy: Math.round(accuracy),
+        timestamp: Date.now(),
+        at: new Date().toISOString(),
+      };
       const coordinates = `GPS: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
       change('destination', coordinates);
+      change('arrivalPoint', arrivalPoint);
       change('gpsAccuracy', Math.round(accuracy));
       setGpsReady(true);
       setGpsStatus('Ubicación GPS registrada. Buscando la dirección…');
@@ -1330,6 +1351,20 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
   const submit = async event => {
     event.preventDefault();
     if (!trip || !photoSelected || !form.endKm || !form.destination) return alert('Registra GPS de destino, toma una foto del tablero y verifica o escribe el kilometraje final.');
+    if (trip.origin && normalizePlace(trip.origin) === normalizePlace(form.destination)) {
+      setGpsReady(false);
+      return setGpsStatus('El destino coincide con el origen. Debes registrar la llegada desde otra ubicación.');
+    }
+    const departurePoint = trip.routePoints?.[0];
+    if (departurePoint && form.arrivalPoint) {
+      const distance = gpsDistanceMeters(departurePoint, form.arrivalPoint);
+      // Un margen de 100 m evita cerrar el recorrido en la misma zona, pero
+      // también absorbe la variación habitual de precisión del GPS.
+      if (distance < 100) {
+        setGpsReady(false);
+        return setGpsStatus(`La llegada está a ${Math.round(distance)} m del origen. Avanza al menos 100 m antes de confirmarla.`);
+      }
+    }
     if (Number(form.endKm) < Number(trip.startKm)) return alert('El kilometraje final no puede ser menor al de salida.');
     setSaving(true);
     setStatus('Guardando llegada y cerrando el recorrido…');
