@@ -510,6 +510,10 @@ function App() {
         return true;
       }
       const isArrival = record.endKm !== null && record.endKm !== undefined && record.endKm !== '';
+      if (isArrival && Number(record.endKm) <= Number(record.startKm)) {
+        alert('El kilometraje final debe ser mayor al kilometraje de salida.');
+        return false;
+      }
       // El nombre visible del conductor nunca se envía a una columna UUID.
       // Para llegadas se conserva el ID que se registró al iniciar la salida.
       const tripDriverId = record.driverProfileId || user.id;
@@ -1365,7 +1369,7 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
         return setGpsStatus(`La llegada está a ${Math.round(distance)} m del origen. Avanza al menos 100 m antes de confirmarla.`);
       }
     }
-    if (Number(form.endKm) < Number(trip.startKm)) return alert('El kilometraje final no puede ser menor al de salida.');
+    if (Number(form.endKm) <= Number(trip.startKm)) return alert('El kilometraje final debe ser mayor al kilometraje de salida.');
     setSaving(true);
     setStatus('Guardando llegada y cerrando el recorrido…');
     const reviewNote = manualKm ? 'Kilometraje final ingresado manualmente: revisar foto de evidencia.' : '';
