@@ -1,9 +1,21 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Frutos Tropicales FTP Odómetro">
-  <rect width="1024" height="1024" rx="224" fill="#17633c"/>
-  <path d="M190 242h644" stroke="#f7a928" stroke-width="18" stroke-linecap="round" opacity=".92"/>
-  <text x="512" y="420" text-anchor="middle" fill="#ffc046" font-family="Arial, Helvetica, sans-serif" font-size="116" font-weight="800" letter-spacing="6">FTP</text>
-  <text x="512" y="545" text-anchor="middle" fill="#ffb23b" font-family="Arial, Helvetica, sans-serif" font-size="54" font-weight="800" letter-spacing="3">FRUTOS</text>
-  <text x="512" y="615" text-anchor="middle" fill="#ffb23b" font-family="Arial, Helvetica, sans-serif" font-size="54" font-weight="800" letter-spacing="1">TROPICALES</text>
-  <path d="M274 704h476" stroke="#f7a928" stroke-width="12" stroke-linecap="round" opacity=".82"/>
-  <text x="512" y="779" text-anchor="middle" fill="#e9f6cd" font-family="Arial, Helvetica, sans-serif" font-size="43" font-weight="700" letter-spacing="2">ODÓMETRO</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Frutos Tropicales Perú">
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#003a28"/><stop offset="1" stop-color="#0d7747"/></linearGradient>
+    <linearGradient id="mango" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#ffd33e"/><stop offset="1" stop-color="#ed6f0b"/></linearGradient>
+    <linearGradient id="leaf" x1="0" x2="1" y1="1" y2="0"><stop stop-color="#4d9e2d"/><stop offset="1" stop-color="#c7ea2d"/></linearGradient>
+    <clipPath id="fruitClip"><circle cx="512" cy="335" r="204"/></clipPath>
+  </defs>
+  <rect width="1024" height="1024" rx="220" fill="url(#bg)"/>
+  <circle cx="512" cy="335" r="204" fill="url(#mango)"/>
+  <path d="M301 138C258 259 300 439 427 522L515 336Z" fill="#67b82d" clip-path="url(#fruitClip)"/>
+  <path d="M441 127C345 48 235 74 176 182c101 25 191 33 265-55Z" fill="url(#leaf)"/>
+  <path d="M539 136C588 40 687 34 756 99c-73 67-141 100-217 37Z" fill="url(#leaf)"/>
+  <path d="M490 120c-7 73-4 141 31 211M442 158c-73 18-128 53-168 104M590 152c50-35 89-53 135-60" fill="none" stroke="#075b35" stroke-width="18" stroke-linecap="round" opacity=".8"/>
+  <path d="M475 212c31-35 88-36 113-6l-25 36 52 23-12 66-68 12-24-48-48 9-26-48Z" fill="#063f2c" opacity=".95"/>
+  <path d="M601 335l53 13 19 47-45 37-42-22 15-43-42-28 42-4Z" fill="#063f2c" opacity=".95"/>
+  <path d="M425 350l43 14 14 59-38 41-45-36 10-41-29-28 45-9Z" fill="#063f2c" opacity=".95"/>
+  <path d="M350 557h324" stroke="#ffa119" stroke-width="12" stroke-linecap="round" opacity=".9"/>
+  <text x="512" y="684" text-anchor="middle" fill="#fff" font-family="Arial, Helvetica, sans-serif" font-size="105" font-weight="800" letter-spacing="3">FRUTOS</text>
+  <text x="512" y="783" text-anchor="middle" fill="#fff" font-family="Arial, Helvetica, sans-serif" font-size="86" font-weight="800" letter-spacing="1">TROPICALES</text>
+  <text x="512" y="882" text-anchor="middle" fill="#ffa119" font-family="Arial, Helvetica, sans-serif" font-size="81" font-weight="800" letter-spacing="7">PERÚ</text>
 </svg>
