@@ -1,6 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="ic_launcher_background">#06472F</color>
-    <!-- Fondo transitorio del arranque nativo: coincide con la bienvenida web. -->
-    <color name="launch_splash_background">#0D3A2D</color>
 </resources>
