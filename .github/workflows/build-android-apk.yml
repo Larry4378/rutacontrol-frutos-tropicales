@@ -59,6 +59,12 @@ jobs:
       - name: Preparar Android
         uses: android-actions/setup-android@v3
 
+      - name: Configurar ruta de Android
+        shell: bash
+        run: |
+          echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > android/local.properties
+
       - name: Instalar componentes de Android
         run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
 
