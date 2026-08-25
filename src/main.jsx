@@ -725,7 +725,7 @@ function MangoQuickActions({permissions,onDeparture,onReturn}) { return <section
 function RouteMap({data,profile,driverPreview,onUpdate}) {
   const active=data.trips.find(isTripOpen);
   const isTripDriver = Boolean(profile?.role === 'driver' && !driverPreview && String(active?.driverProfileId || active?.driver || '') === String(profile?.id || ''));
-  const mapNode=useRef(null); const map=useRef(null); const line=useRef(null); const marker=useRef(null); const startMarker=useRef(null); const watcher=useRef(null); const record=useRef(active); const manualMapView=useRef(false); const automaticMapMove=useRef(false);
+  const mapNode=useRef(null); const map=useRef(null); const marker=useRef(null); const watcher=useRef(null); const record=useRef(active); const manualMapView=useRef(false); const automaticMapMove=useRef(false);
   const [tracking,setTracking]=useState(false);
   const [resumeCycle,setResumeCycle]=useState(0);
   const [message,setMessage]=useState(active?'GPS activándose para seguir el vehículo.':'No hay un vehículo en ruta. Registra una salida primero.');
@@ -743,22 +743,14 @@ function RouteMap({data,profile,driverPreview,onUpdate}) {
       window.removeEventListener('focus',restartGpsWhenReturning);
     };
   },[]);
-  useEffect(()=>{if(!mapNode.current||map.current)return;map.current=L.map(mapNode.current,{zoomControl:false,attributionControl:false}).setView([-5.1945,-80.6328],11);const markManualView=()=>{if(!automaticMapMove.current)manualMapView.current=true;};map.current.on('dragstart',markManualView);map.current.on('zoomstart',markManualView);L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',{attribution:'© OpenStreetMap © CARTO',maxZoom:19}).addTo(map.current);L.control.zoom({position:'bottomright'}).addTo(map.current);L.control.attribution({position:'bottomleft',prefix:'© OpenStreetMap © CARTO'}).addTo(map.current);return()=>{map.current?.off('dragstart',markManualView);map.current?.off('zoomstart',markManualView);map.current?.remove();map.current=null;};},[]);
+  useEffect(()=>{if(!mapNode.current||map.current)return;map.current=L.map(mapNode.current,{zoomControl:false,attributionControl:false}).setView([-5.1945,-80.6328],11);const markManualView=()=>{if(!automaticMapMove.current)manualMapView.current=true;};map.current.on('dragstart',markManualView);map.current.on('zoomstart',markManualView);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap contributors',maxNativeZoom:19,maxZoom:20}).addTo(map.current);L.control.zoom({position:'bottomright'}).addTo(map.current);L.control.attribution({position:'bottomleft',prefix:'© OpenStreetMap'}).addTo(map.current);return()=>{map.current?.off('dragstart',markManualView);map.current?.off('zoomstart',markManualView);map.current?.remove();map.current=null;};},[]);
   useEffect(()=>{
     const points=(active?.routePoints||[]).map(point=>[point.lat,point.lng]);
     if(!map.current)return;
-    if(line.current){line.current.remove();line.current=null;}
     if(!points.length){
       if(marker.current){marker.current.remove();marker.current=null;}
-      if(startMarker.current){startMarker.current.remove();startMarker.current=null;}
       return;
     }
-    line.current=L.layerGroup([
-      L.polyline(points,{color:'#ffffff',weight:10,opacity:.95}),
-      L.polyline(points,{color:'#1267b3',weight:6,opacity:1}),
-    ]).addTo(map.current);
-    if(!startMarker.current) startMarker.current=L.marker(points[0],{icon:L.divIcon({className:'route-start-icon',html:'<span title="Punto de salida">●</span>',iconSize:[24,24],iconAnchor:[12,12]})}).addTo(map.current);
-    else startMarker.current.setLatLng(points[0]);
     const last=points.at(-1);
     const vehicle=data.vehicles.find(item=>item.id===active.vehicleId);
     const symbol=String(vehicle?.vehicle_type||'').toLowerCase().includes('moto')?'🏍️':'🚗';
@@ -767,8 +759,8 @@ function RouteMap({data,profile,driverPreview,onUpdate}) {
     else { marker.current.setIcon(icon); marker.current.setLatLng(last); }
     if(!manualMapView.current){
       automaticMapMove.current=true;
-      if(points.length>1) map.current.fitBounds(L.latLngBounds(points),{padding:[70,55],maxZoom:14,animate:true,duration:.6});
-      else map.current.setView(last,14,{animate:true});
+      // Mostrar calles locales y el vehículo actual, sin dibujar el recorrido histórico.
+      map.current.setView(last,17,{animate:true});
       window.setTimeout(()=>{automaticMapMove.current=false;},750);
     }
     setTimeout(()=>map.current?.invalidateSize(),80);
@@ -793,7 +785,6 @@ function RouteMap({data,profile,driverPreview,onUpdate}) {
     },()=>{setTracking(false);setMessage('No se pudo actualizar el GPS. Activa la ubicación precisa y mantén abierta la aplicación.');},{enableHighAccuracy:true,maximumAge:0,timeout:15000});
     return()=>{if(watcher.current){navigator.geolocation.clearWatch(watcher.current);watcher.current=null;}};
   },[active?.id,isTripDriver,resumeCycle]);
-  const points=active?.routePoints?.length||0;
   const focusVehicle = () => {
     const last = record.current?.routePoints?.at(-1);
     if (!last || !map.current) return;
@@ -802,7 +793,7 @@ function RouteMap({data,profile,driverPreview,onUpdate}) {
     map.current.flyTo([last.lat,last.lng], Math.max(map.current.getZoom(), 17), { animate:true, duration:.6 });
     window.setTimeout(()=>{automaticMapMove.current=false;},750);
   };
-  return <section className={`route-section route-navigation ${active ? 'has-active-trip' : 'no-active-trip'}`}><div className="section-head route-section-title"><div><p className="eyebrow">SEGUIMIENTO</p><h2>{active ? 'Trayecto en tiempo real' : 'Mapa de recorridos'}</h2><p>{active ? `Movilidad ${vehicleName(data,active.vehicleId)} en ruta. Puedes explorar el mapa libremente.` : 'El mapa se ampliará automáticamente cuando inicies una salida.'}</p></div>{active&&<span className="tracking-badge">● GPS en vivo</span>}</div><div className="route-map-shell"><div ref={mapNode} className="route-map"/>{active&&<><div className="route-map-status"><span className="route-live-dot"/><div><b>{vehicleName(data,active.vehicleId)}</b><small>{isTripDriver&&tracking?'Enviando ubicación':'Ubicación del chofer'}</small></div></div><button type="button" className="map-recenter-button" onClick={focusVehicle} title="Volver a mi vehículo" aria-label="Volver a mi vehículo">⌖</button></>}</div><p className="route-note">{message} {points>1&&' La línea azul muestra el trayecto registrado.'}</p></section>;
+  return <section className={`route-section route-navigation ${active ? 'has-active-trip' : 'no-active-trip'}`}><div className="section-head route-section-title"><div><p className="eyebrow">SEGUIMIENTO</p><h2>{active ? 'Ubicación en tiempo real' : 'Mapa de recorridos'}</h2><p>{active ? `Movilidad ${vehicleName(data,active.vehicleId)} en ruta. Puedes explorar el mapa libremente.` : 'El mapa se ampliará automáticamente cuando inicies una salida.'}</p></div>{active&&<span className="tracking-badge">● GPS en vivo</span>}</div><div className="route-map-shell"><div ref={mapNode} className="route-map"/>{active&&<><div className="route-map-status"><span className="route-live-dot"/><div><b>{vehicleName(data,active.vehicleId)}</b><small>{isTripDriver&&tracking?'Enviando ubicación':'Ubicación del chofer'}</small></div></div><button type="button" className="map-recenter-button" onClick={focusVehicle} title="Volver a mi vehículo" aria-label="Volver a mi vehículo">⌖</button></>}</div><p className="route-note">{message}</p></section>;
 }
 function Metric({label,value,note}) { return <div className="metric"><span className="metric-label">{label}</span><div className="metric-value">{value}</div><small>{note}</small></div>; }
 function List({title,text,onAdd,hideAdd=false,children}) { return <section><div className="section-head"><div><h2>{title}</h2><p>{text}</p></div>{!hideAdd&&<button className="primary" onClick={onAdd}>+ Agregar</button>}</div>{children}</section>; }
