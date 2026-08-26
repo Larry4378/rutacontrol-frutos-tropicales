@@ -78,13 +78,16 @@ Deno.serve(async (req) => {
           temperature: 0,
           responseMimeType: 'application/json',
           responseSchema: {
-            type: 'OBJECT',
+            // Gemini usa el vocabulario estándar de JSON Schema en minúsculas.
+            // Con los tipos en mayúsculas el proveedor rechaza la solicitud y la
+            // aplicación cae en el OCR local, que no valida visualmente la foto.
+            type: 'object',
             properties: {
-              isOdometer: { type: 'BOOLEAN' },
-              readable: { type: 'BOOLEAN' },
-              odometerKm: { type: 'NUMBER' },
-              confidence: { type: 'NUMBER' },
-              message: { type: 'STRING' },
+              isOdometer: { type: 'boolean' },
+              readable: { type: 'boolean' },
+              odometerKm: { type: 'number' },
+              confidence: { type: 'number' },
+              message: { type: 'string' },
             },
             required: ['isOdometer', 'readable', 'confidence', 'message'],
           },
@@ -96,8 +99,14 @@ Deno.serve(async (req) => {
   }
 
   if (!geminiResponse.ok) {
-    // No devolvemos detalles del proveedor ni credenciales al teléfono.
-    return response({ error: 'La validación inteligente no está disponible por el momento.' }, 503)
+    // El detalle se mantiene solamente en los registros seguros de la función.
+    // Al conductor no se le exponen mensajes internos ni datos de la clave.
+    const detail = (await geminiResponse.text()).slice(0, 1000)
+    console.error('Gemini validation request failed', geminiResponse.status, detail)
+    return response({
+      error: 'La validación inteligente no está disponible por el momento.',
+      code: `GEMINI_HTTP_${geminiResponse.status}`,
+    }, 503)
   }
 
   let parsed: Record<string, unknown> = {}
@@ -139,7 +148,7 @@ Deno.serve(async (req) => {
     readable: false,
     odometerKm: null,
     confidence,
-    message: `La lectura (${odometerKm} km) es menor que el kilometraje de referencia (${minimumKm} km). Revisa la foto o escribe el valor manualmente.`,
+    message: `La lectura (${odometerKm} km) es menor que el kilometraje de referencia (${minimumKm} km). Toma nuevamente una foto clara del tablero.`,
   })
 
   return response({
