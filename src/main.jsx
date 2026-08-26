@@ -1281,18 +1281,19 @@ const uploadOdometerPhoto = async (file, stage) => {
 function PhotoSource({ onChange, accept = 'image/*', withCamera = true }) {
   const [fileName, setFileName] = useState('');
   const select = async event => {
-    const originalFile = event.target.files?.[0];
+    const input = event.currentTarget;
+    const originalFile = input.files?.[0];
     if (!originalFile) return;
+    const labelText = input.closest('.field')?.querySelector(':scope > label')?.textContent?.toLowerCase() || '';
     let file;
     try {
       setFileName('Preparando foto…');
       file = await prepareImageForUpload(originalFile);
     } catch (error) {
       setFileName(`No se aceptó la foto: ${error.message}`);
-      event.currentTarget.value = '';
+      input.value = '';
       return;
     }
-    const labelText = event.currentTarget.closest('.field')?.querySelector(':scope > label')?.textContent?.toLowerCase() || '';
     const stage = labelText.includes('odómetro') && labelText.includes('salida') ? 'departure' : labelText.includes('odómetro') && (labelText.includes('final') || labelText.includes('retorno')) ? 'return' : '';
     setFileName(stage ? 'Guardando foto en la nube…' : `✓ Foto preparada: ${imageSizeLabel(file.size)}`);
     if (stage) {
