@@ -1143,13 +1143,25 @@ function MaintenanceModal({record={},data,assignedVehicleId='',onClose,onSave}) 
     }
   },[assignedVehicleId,record.vehicleId]);
 
-  const scan=async file=>{
+  const scan=async(file,target='km')=>{
     if(!file)return;
     setStatus('Analizando la fotografía…');
     try{
       const worker=await createWorker('eng');
       const {data:{text}}=await worker.recognize(file);
       await worker.terminate();
+      if(target==='plate'){
+        const clean=text.toUpperCase().replace(/[^A-Z0-9]/g,'');
+        const vehicle=data.vehicles.find(item=>clean.includes(String(item.plate||'').toUpperCase().replace(/[^A-Z0-9]/g,'')));
+        change('platePhoto',file.name);
+        if(vehicle){
+          change('vehicleId',vehicle.id);
+          setStatus(`Placa reconocida: ${vehicle.plate}.`);
+        }else{
+          setStatus('No se encontró la placa; selecciona el vehículo manualmente.');
+        }
+        return;
+      }
       const values=(text.match(/\b\d{3,7}(?:[.,]\d{3})*\b/g)||[])
         .map(value=>Number(value.replace(/[^0-9]/g,'')))
         .filter(value=>value>0);
@@ -1176,7 +1188,7 @@ function MaintenanceModal({record={},data,assignedVehicleId='',onClose,onSave}) 
     <div className="maintenance-hero"><div><p className="eyebrow">FRUTOS TROPICALES EXPORT. PERÚ</p><h2>Mantenimiento del vehículo</h2><p>Un registro claro para cuidar la flota que mueve nuestra cosecha.</p></div><i className="hero-mango"/></div>
     <button type="button" className="close maintenance-close" onClick={onClose}>×</button>
     <div className="maintenance-steps"><span>1. Identifica</span><span>2. Registra</span><span>3. Programa</span></div>
-    <section className="photo-capture"><label className="photo-card"><b>◉ Foto del odómetro</b><small>Completa el kilometraje del servicio</small><PhotoSource onChange={e=>scan(e.target.files?.[0])}/></label></section>
+    <section className="photo-capture"><label className="photo-card"><b>◫ Foto de placa</b><small>Selecciona el vehículo automáticamente</small><PhotoSource onChange={e=>scan(e.target.files?.[0],'plate')}/></label><label className="photo-card"><b>◉ Foto del odómetro</b><small>Completa el kilometraje del servicio</small><PhotoSource onChange={e=>scan(e.target.files?.[0],'km')}/></label></section>
     {status&&<p className="ocr-status">{status}</p>}
     <div className="form-grid maintenance-grid-form">
       <div className="field"><label>{assignedVehicleId?'Vehículo asignado (puedes cambiarlo)':'Vehículo'}</label><select required value={form.vehicleId||assignedVehicleId||''} onChange={e=>change('vehicleId',e.target.value)}><option value="">Seleccionar vehículo</option>{data.vehicles.map(vehicle=><option key={vehicle.id} value={vehicle.id}>{vehicle.plate} · {vehicle.brand} {vehicle.model}</option>)}</select><small className="field-help">Tu vehículo aparece por defecto. Puedes elegir otro si corresponde.</small></div>
