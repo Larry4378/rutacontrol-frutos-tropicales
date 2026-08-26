@@ -1320,6 +1320,34 @@ const readOdometerKm = text => {
   return wholeNumbers.length ? Math.max(...wholeNumbers) : NaN;
 };
 
+// Gemini se consulta mediante una Edge Function de Supabase. La llave de la IA
+// queda solo en la nube y nunca se entrega al navegador ni a los celulares.
+const fileToBase64 = file => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onerror = () => reject(new Error('No se pudo preparar la foto para validarla.'));
+  reader.onload = () => {
+    const result = String(reader.result || '');
+    const comma = result.indexOf(',');
+    if (comma < 0) return reject(new Error('La foto no tiene un formato válido.'));
+    resolve(result.slice(comma + 1));
+  };
+  reader.readAsDataURL(file);
+});
+
+const analyzeOdometerWithGemini = async (file, { minimumKm = 0, stage = 'departure' } = {}) => {
+  const imageBase64 = await fileToBase64(file);
+  const { data, error } = await supabase.functions.invoke('analyze-odometer', {
+    body: {
+      imageBase64,
+      mimeType: file.type || 'image/jpeg',
+      minimumKm: Number(minimumKm) || 0,
+      stage,
+    },
+  });
+  if (error) throw error;
+  return data || { available: false };
+};
+
 const prepareOdometerImage = async file => {
   if (!window.createImageBitmap) return null;
   const image = await createImageBitmap(file);
@@ -1338,7 +1366,21 @@ const prepareOdometerImage = async file => {
   } finally { image.close(); }
 };
 
-const recognizeOdometerKm = async file => {
+const recognizeOdometerKm = async (file, options = {}) => {
+  let vision = null;
+  try {
+    vision = await analyzeOdometerWithGemini(file, options);
+    if (vision?.available) {
+      if (!vision.isOdometer) return { km: NaN, source: 'gemini', message: vision.message || 'La foto no parece mostrar un tablero u odómetro. Toma nuevamente la foto del kilometraje.' };
+      if (!vision.readable) return { km: NaN, source: 'gemini', message: vision.message || 'La foto del tablero no se ve lo suficientemente clara. Tómala nuevamente enfocando el kilometraje.' };
+      const aiKm = Number(vision.odometerKm);
+      if (Number.isFinite(aiKm) && aiKm > 0) return { km: aiKm, source: 'gemini', message: vision.message || '' };
+      return { km: NaN, source: 'gemini', message: vision.message || 'No se pudo leer el kilometraje con claridad. Toma otra foto o escríbelo manualmente.' };
+    }
+  } catch {
+    // Mientras se activa la llave de Gemini o si no hay conexión, Tesseract
+    // conserva la lectura local para que el registro no quede bloqueado.
+  }
   const worker = await createWorker('eng');
   try {
     const { data: { text: fullText } } = await worker.recognize(file);
@@ -1347,7 +1389,7 @@ const recognizeOdometerKm = async file => {
       const focusedImage = await prepareOdometerImage(file);
       if (focusedImage) ({ data: { text: focusedText } } = await worker.recognize(focusedImage));
     } catch {}
-    return readOdometerKm(`${focusedText}\n${fullText}`);
+    return { km: readOdometerKm(`${focusedText}\n${fullText}`), source: 'ocr', message: '' };
   } finally { await worker.terminate(); }
 };
 
@@ -1420,13 +1462,18 @@ function DepartureGpsRequired({ data, driverName = '', driverId = '', assignedVe
     change('startPhoto', odometerStoragePaths.get(file) || file.name);
     setStatus('Leyendo el odómetro…');
     try {
-      const km = await recognizeOdometerKm(file);
+      const result = await recognizeOdometerKm(file, {
+        minimumKm: assignedVehicle ? currentKm(data, assignedVehicle) : 0,
+        stage: 'departure',
+      });
+      const km = result.km;
       if (Number.isFinite(km)) {
         change('startKm', String(km));
         setPhotoSelected(true);
-        setStatus(`Kilometraje detectado: ${km.toLocaleString('es-PE', { maximumFractionDigits: 1 })} km. Verifícalo antes de confirmar.`);
+        const label = result.source === 'gemini' ? 'Tablero validado y kilometraje detectado' : 'Kilometraje detectado';
+        setStatus(`${label}: ${km.toLocaleString('es-PE', { maximumFractionDigits: 1 })} km. Verifícalo antes de confirmar.`);
       } else {
-        setStatus('No se detectó un odómetro legible. Toma otra foto clara del tablero o escribe el kilometraje manualmente.');
+        setStatus(result.message || 'No se detectó un odómetro legible. Toma otra foto clara del tablero o escribe el kilometraje manualmente.');
       }
     } catch {
       setStatus('No se pudo leer la fotografía. Toma otra foto clara del tablero o escribe el kilometraje manualmente.');
@@ -1518,13 +1565,18 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
     // La foto continúa como evidencia obligatoria, incluso si el número se corrige manualmente.
     setPhotoSelected(true); setManualKm(false); change('endKm', ''); change('endPhoto', odometerStoragePaths.get(file) || file.name); setStatus('Leyendo el odómetro final…');
     try {
-      const km = await recognizeOdometerKm(file);
+      const result = await recognizeOdometerKm(file, {
+        minimumKm: Number(trip?.startKm) || 0,
+        stage: 'arrival',
+      });
+      const km = result.km;
       if (Number.isFinite(km)) {
         change('endKm', String(km));
         setPhotoSelected(true);
-        setStatus(`Kilometraje final detectado: ${km.toLocaleString('es-PE', { maximumFractionDigits: 1 })} km. Verifícalo antes de confirmar.`);
+        const label = result.source === 'gemini' ? 'Tablero validado y kilometraje final detectado' : 'Kilometraje final detectado';
+        setStatus(`${label}: ${km.toLocaleString('es-PE', { maximumFractionDigits: 1 })} km. Verifícalo antes de confirmar.`);
       } else {
-        setStatus('No se detectó un odómetro legible. Toma otra foto clara del tablero o escribe el kilometraje manualmente.');
+        setStatus(result.message || 'No se detectó un odómetro legible. Toma otra foto clara del tablero o escribe el kilometraje manualmente.');
       }
     } catch {
       setStatus('No se pudo leer la fotografía. Toma otra foto clara del tablero o escribe el kilometraje manualmente.');
