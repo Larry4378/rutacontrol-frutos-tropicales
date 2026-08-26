@@ -26,10 +26,14 @@ const gpsDistanceMeters = (previous, point) => {
 const gpsRouteKm = points => (points || []).slice(1).reduce((total, point, index) => {
   return total + gpsDistanceMeters(points[index], point) / 1000;
 }, 0);
+// Para mostrar el vehículo sobre la vía real, no se usan lecturas imprecisas.
+// El GPS puede informar una posición válida pero con decenas de metros de error.
+const GPS_TRACKING_MAX_ACCURACY_METERS = 25;
+const GPS_TRACKING_MIN_INTERVAL_MS = 4000;
 // El GPS de un teléfono puede enviar saltos al recuperar señal. Solo se
 // conservan puntos con precisión razonable y desplazamientos físicamente posibles.
 const shouldKeepGpsPoint = (previous, point) => {
-  if (!Number.isFinite(point.lat) || !Number.isFinite(point.lng) || point.accuracy > 80) return false;
+  if (!Number.isFinite(point.lat) || !Number.isFinite(point.lng) || !Number.isFinite(point.accuracy) || point.accuracy > GPS_TRACKING_MAX_ACCURACY_METERS) return false;
   if (!previous) return true;
   const previousTimestamp = Number(previous.timestamp || Date.parse(previous.at || ''));
   // Un teléfono puede entregar una posición antigua después de recuperar señal.
@@ -37,11 +41,14 @@ const shouldKeepGpsPoint = (previous, point) => {
   if (Number.isFinite(previousTimestamp) && point.timestamp <= previousTimestamp) return false;
   const distance = gpsDistanceMeters(previous, point);
   const seconds = Number.isFinite(previousTimestamp) ? Math.max(0, (point.timestamp - previousTimestamp) / 1000) : 0;
-  const uncertainty = Math.max(10, Number(previous.accuracy || 0) + Number(point.accuracy || 0));
-  // Ignora pequeñas variaciones cuando el vehículo está detenido.
-  if (seconds < 4 && distance < Math.max(12, Math.min(40, uncertainty * 0.45))) return false;
-  // 150 km/h más un margen por precisión: impide trayectos falsos por saltos GPS.
-  const maximumDistance = Math.max(100, seconds * 42 + uncertainty * 1.5);
+  const uncertainty = Math.max(6, Number(previous.accuracy || 0) + Number(point.accuracy || 0));
+  // Se registra una posición cada pocos segundos. Así no se dibujan los rebotes
+  // normales de un teléfono detenido ni se mueve el ícono antes que el vehículo.
+  if (seconds * 1000 < GPS_TRACKING_MIN_INTERVAL_MS) return false;
+  const minimumMovement = Math.max(8, Math.min(16, uncertainty * 0.25));
+  if (distance < minimumMovement && point.accuracy >= Number(previous.accuracy || 0) - 5) return false;
+  // 130 km/h más un margen por precisión: impide trayectos falsos por saltos GPS.
+  const maximumDistance = Math.max(60, seconds * 36 + uncertainty);
   return seconds === 0 ? distance <= uncertainty : distance <= maximumDistance;
 };
 // Un recorrido se considera pendiente solo mientras no tenga kilometraje final
@@ -802,9 +809,14 @@ function RouteMap({data,profile,driverPreview,onUpdate}) {
       const timestamp=Number(position.timestamp || Date.now());
       const point={lat:position.coords.latitude,lng:position.coords.longitude,at:new Date(timestamp).toISOString(),timestamp,accuracy:Math.round(position.coords.accuracy)};
       const lastPoint=previous.routePoints?.at(-1);
+      if (point.accuracy > GPS_TRACKING_MAX_ACCURACY_METERS) {
+        setMessage(`Esperando una señal GPS más precisa (${point.accuracy} m). El vehículo se actualizará al mejorar la ubicación.`);
+        return;
+      }
       if(!shouldKeepGpsPoint(lastPoint,point)) return;
       const next={...previous,routePoints:[...(previous.routePoints||[]),point]};
       record.current=next;
+      setMessage(`Ubicación actualizada con precisión de ${point.accuracy} m.`);
       onUpdate({ ...next, _routeTracking: true });
     },()=>{setTracking(false);setMessage('No se pudo actualizar el GPS. Activa la ubicación precisa y mantén abierta la aplicación.');},{enableHighAccuracy:true,maximumAge:0,timeout:15000});
     return()=>{if(watcher.current){navigator.geolocation.clearWatch(watcher.current);watcher.current=null;}};
