@@ -1374,7 +1374,13 @@ const recognizeOdometerKm = async (file, options = {}) => {
       if (!vision.isOdometer) return { km: NaN, source: 'gemini', classification: 'invalid', message: vision.message || 'La foto no parece mostrar un tablero u odómetro. Toma nuevamente la foto del kilometraje.' };
       if (!vision.readable) return { km: NaN, source: 'gemini', classification: 'blurred', message: vision.message || 'La foto del tablero no se ve lo suficientemente clara. Tómala nuevamente enfocando el kilometraje.' };
       const aiKm = Number(vision.odometerKm);
-      if (Number.isFinite(aiKm) && aiKm > 0) return { km: aiKm, source: 'gemini', classification: 'valid', message: vision.message || '' };
+      if (Number.isFinite(aiKm) && aiKm > 0) return {
+        km: aiKm,
+        source: 'gemini',
+        classification: 'valid',
+        referenceMismatch: vision.referenceMismatch === true,
+        message: vision.message || '',
+      };
       return { km: NaN, source: 'gemini', classification: 'blurred', message: vision.message || 'No se pudo leer el kilometraje con claridad. Toma nuevamente una foto clara del tablero.' };
     }
     if (options.strictVisual) return { km: NaN, source: 'gemini', classification: 'unavailable', message: 'No se pudo validar la foto del tablero. Inténtalo nuevamente en unos segundos.' };
@@ -1478,7 +1484,8 @@ function DepartureGpsRequired({ data, driverName = '', driverId = '', assignedVe
       if (Number.isFinite(km)) {
         change('startKm', String(km));
         const label = result.source === 'gemini' ? 'Tablero validado y kilometraje detectado' : 'Kilometraje detectado';
-        setStatus(`${label}: ${km.toLocaleString('es-PE', { maximumFractionDigits: 1 })} km. Guardando foto validada…`);
+        const warning = result.referenceMismatch ? ' La lectura es menor al último kilometraje registrado; revisa ese dato anterior en Vehículos.' : '';
+        setStatus(`${label}: ${km.toLocaleString('es-PE', { maximumFractionDigits: 1 })} km.${warning} Guardando foto validada…`);
         return true;
       } else {
         setStatus(result.message || 'La foto no permite leer el odómetro. Toma nuevamente una foto clara del tablero.');
@@ -1586,7 +1593,8 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
       if (Number.isFinite(km)) {
         change('endKm', String(km));
         const label = result.source === 'gemini' ? 'Tablero validado y kilometraje final detectado' : 'Kilometraje final detectado';
-        setStatus(`${label}: ${km.toLocaleString('es-PE', { maximumFractionDigits: 1 })} km. Guardando foto validada…`);
+        const warning = result.referenceMismatch ? ' La lectura es menor al kilometraje de salida; toma otra foto antes de confirmar.' : '';
+        setStatus(`${label}: ${km.toLocaleString('es-PE', { maximumFractionDigits: 1 })} km.${warning} Guardando foto validada…`);
         return true;
       } else {
         setStatus(result.message || 'La foto no permite leer el odómetro. Toma nuevamente una foto clara del tablero.');

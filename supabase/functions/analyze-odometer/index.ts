@@ -58,51 +58,88 @@ Deno.serve(async (req) => {
 
   const prompt = [
     'Analiza esta única foto para un control vehicular.',
-    'Primero decide si muestra realmente un tablero/instrumental de vehículo con un odómetro visible.',
+    'Primero decide si muestra realmente un tablero, panel de instrumentos o una toma cercana de la pantalla del odómetro de un vehículo.',
+    'Una foto parcial es válida: no es necesario que aparezca el tablero completo si se observa una pantalla integrada al vehículo y una lectura acumulada identificable como ODO, odómetro o kilometraje total.',
     'No confundas la velocidad, la hora, el número de marcha, la placa, una fecha, un recibo o cualquier texto con el kilometraje.',
-    'Acepta tableros de motos, autos, camionetas y camiones, tanto digitales como analógicos.',
+    'Acepta tableros de motos, autos, camionetas y camiones, tanto digitales como mecánicos/analógicos, incluso si tienen reflejos leves o diseño antiguo.',
+    'isOdometer debe ser verdadero cuando la imagen sí pertenece al tablero o a la pantalla de instrumentos del vehículo, aunque la lectura esté borrosa; readable indica por separado si los dígitos pueden leerse.',
     'Si la foto no es un tablero o si los dígitos del odómetro no se distinguen con seguridad, indica que no es legible.',
-    `Es una lectura de ${stage}. El kilometraje de referencia mínimo es ${minimumKm} km.`,
+    `Es una lectura de ${stage}. El valor histórico de referencia es ${minimumKm} km; úsalo solamente como contexto y nunca para decidir si la foto es o no un tablero.`,
     'Devuelve únicamente los datos solicitados. El kilometraje debe ser un número decimal sin separador de miles.',
   ].join(' ')
 
-  const model = Deno.env.get('GEMINI_MODEL') || 'gemini-2.5-flash'
-  let geminiResponse: Response
-  try {
-    geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+  const preferredModel = Deno.env.get('GEMINI_MODEL') || 'gemini-2.5-flash'
+  const requestBody = JSON.stringify({
+    contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType, data: imageBase64 } }] }],
+    generationConfig: {
+      temperature: 0,
+      responseMimeType: 'application/json',
+      responseSchema: {
+        // Gemini usa el vocabulario estándar de JSON Schema en minúsculas.
+        type: 'object',
+        properties: {
+          isOdometer: {
+            type: 'boolean',
+            description: 'Verdadero si la foto muestra un tablero/panel de instrumentos real o un acercamiento de su pantalla de odómetro.',
+          },
+          readable: {
+            type: 'boolean',
+            description: 'Verdadero únicamente si la lectura acumulada del odómetro se distingue con suficiente claridad.',
+          },
+          odometerKm: {
+            type: ['number', 'null'],
+            description: 'Kilometraje total acumulado del vehículo. Null si no puede leerse con seguridad.',
+          },
+          confidence: { type: 'number', description: 'Confianza entre 0 y 1.' },
+          message: { type: 'string', description: 'Explicación breve en español para el conductor.' },
+        },
+        required: ['isOdometer', 'readable', 'odometerKm', 'confidence', 'message'],
+      },
+    },
+  })
+
+  const callGemini = (model: string) => fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiKey },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType, data: imageBase64 } }] }],
-        generationConfig: {
-          temperature: 0,
-          responseMimeType: 'application/json',
-          responseSchema: {
-            // Gemini usa el vocabulario estándar de JSON Schema en minúsculas.
-            // Con los tipos en mayúsculas el proveedor rechaza la solicitud y la
-            // aplicación cae en el OCR local, que no valida visualmente la foto.
-            type: 'object',
-            properties: {
-              isOdometer: { type: 'boolean' },
-              readable: { type: 'boolean' },
-              odometerKm: { type: 'number' },
-              confidence: { type: 'number' },
-              message: { type: 'string' },
-            },
-            required: ['isOdometer', 'readable', 'confidence', 'message'],
-          },
-        },
-      }),
+      body: requestBody,
+      signal: AbortSignal.timeout(25000),
     })
-  } catch {
+
+  // Gemini recomienda reintentar 429/5xx. La segunda opción usa Flash-Lite,
+  // que admite imágenes y salidas estructuradas y tiene cuota independiente.
+  const attempts = [preferredModel, preferredModel, 'gemini-2.5-flash-lite']
+  let geminiResponse: Response | null = null
+  let lastDetail = ''
+  for (let attempt = 0; attempt < attempts.length; attempt += 1) {
+    try {
+      const current = await callGemini(attempts[attempt])
+      if (current.ok) {
+        geminiResponse = current
+        break
+      }
+      lastDetail = (await current.text()).slice(0, 1000)
+      console.error('Gemini validation request failed', attempts[attempt], current.status, lastDetail)
+      if (![429, 500, 502, 503, 504].includes(current.status)) {
+        geminiResponse = current
+        break
+      }
+    } catch (error) {
+      lastDetail = String(error).slice(0, 1000)
+      console.error('Gemini validation transport failed', attempts[attempt], lastDetail)
+    }
+    if (attempt < attempts.length - 1) await new Promise(resolve => setTimeout(resolve, 600 * (2 ** attempt)))
+  }
+
+  if (!geminiResponse) {
+    console.error('Gemini validation exhausted all retries', lastDetail)
     return response({ error: 'No se pudo contactar el validador de fotos.' }, 503)
   }
 
   if (!geminiResponse.ok) {
     // El detalle se mantiene solamente en los registros seguros de la función.
     // Al conductor no se le exponen mensajes internos ni datos de la clave.
-    const detail = (await geminiResponse.text()).slice(0, 1000)
-    console.error('Gemini validation request failed', geminiResponse.status, detail)
+    const detail = lastDetail || (await geminiResponse.text()).slice(0, 1000)
+    console.error('Gemini validation request definitively failed', geminiResponse.status, detail)
     return response({
       error: 'La validación inteligente no está disponible por el momento.',
       code: `GEMINI_HTTP_${geminiResponse.status}`,
@@ -142,21 +179,13 @@ Deno.serve(async (req) => {
     message: message || 'No se distinguen bien los números del odómetro. Enfoca el tablero y toma otra foto.',
   })
 
-  if (minimumKm > 0 && odometerKm < minimumKm) return response({
-    available: true,
-    isOdometer: true,
-    readable: false,
-    odometerKm: null,
-    confidence,
-    message: `La lectura (${odometerKm} km) es menor que el kilometraje de referencia (${minimumKm} km). Toma nuevamente una foto clara del tablero.`,
-  })
-
   return response({
     available: true,
     isOdometer: true,
     readable: true,
     odometerKm,
     confidence,
+    referenceMismatch: minimumKm > 0 && odometerKm < minimumKm,
     message: message || 'Tablero validado correctamente.',
   })
 })
