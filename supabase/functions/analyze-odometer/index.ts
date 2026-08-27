@@ -35,7 +35,9 @@ Deno.serve(async (req) => {
     .maybeSingle()
   if (!profile || profile.is_active === false) return response({ error: 'Tu acceso no está habilitado.' }, 403)
 
-  const geminiKey = Deno.env.get('GEMINI_API_KEY')
+  // Supabase permite pegar valores multilínea; elimina espacios o saltos
+  // accidentales para que Google reciba exactamente la clave creada.
+  const geminiKey = Deno.env.get('GEMINI_API_KEY')?.trim()
   // La aplicación conserva su OCR local mientras el administrador todavía no
   // haya configurado la llave. Así ningún conductor queda bloqueado.
   if (!geminiKey) return response({ available: false, code: 'NOT_CONFIGURED' })
