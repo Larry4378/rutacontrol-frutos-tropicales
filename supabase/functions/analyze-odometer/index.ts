@@ -65,7 +65,7 @@ Deno.serve(async (req) => {
     'isOdometer debe ser verdadero cuando la imagen sí pertenece al tablero o a la pantalla de instrumentos del vehículo, aunque la lectura esté borrosa; readable indica por separado si los dígitos pueden leerse.',
     'Si la foto no es un tablero o si los dígitos del odómetro no se distinguen con seguridad, indica que no es legible.',
     `Es una lectura de ${stage}. El valor histórico de referencia es ${minimumKm} km; úsalo solamente como contexto y nunca para decidir si la foto es o no un tablero.`,
-    'Devuelve únicamente los datos solicitados. El kilometraje debe ser un número decimal sin separador de miles.',
+    'Devuelve únicamente un objeto JSON con estas cinco propiedades: isOdometer (booleano), readable (booleano), odometerKm (número decimal sin separador de miles o null), confidence (número de 0 a 1) y message (explicación breve en español).',
   ].join(' ')
 
   const preferredModel = Deno.env.get('GEMINI_MODEL') || 'gemini-2.5-flash'
@@ -74,27 +74,6 @@ Deno.serve(async (req) => {
     generationConfig: {
       temperature: 0,
       responseMimeType: 'application/json',
-      responseSchema: {
-        // Gemini usa el vocabulario estándar de JSON Schema en minúsculas.
-        type: 'object',
-        properties: {
-          isOdometer: {
-            type: 'boolean',
-            description: 'Verdadero si la foto muestra un tablero/panel de instrumentos real o un acercamiento de su pantalla de odómetro.',
-          },
-          readable: {
-            type: 'boolean',
-            description: 'Verdadero únicamente si la lectura acumulada del odómetro se distingue con suficiente claridad.',
-          },
-          odometerKm: {
-            type: ['number', 'null'],
-            description: 'Kilometraje total acumulado del vehículo. Null si no puede leerse con seguridad.',
-          },
-          confidence: { type: 'number', description: 'Confianza entre 0 y 1.' },
-          message: { type: 'string', description: 'Explicación breve en español para el conductor.' },
-        },
-        required: ['isOdometer', 'readable', 'odometerKm', 'confidence', 'message'],
-      },
     },
   })
 
@@ -140,10 +119,20 @@ Deno.serve(async (req) => {
     // Al conductor no se le exponen mensajes internos ni datos de la clave.
     const detail = lastDetail || (await geminiResponse.text()).slice(0, 1000)
     console.error('Gemini validation request definitively failed', geminiResponse.status, detail)
+    const normalizedDetail = detail.toLowerCase()
+    const diagnostic = normalizedDetail.includes('api key not valid') || normalizedDetail.includes('api_key_invalid')
+      ? { code: 'GEMINI_API_KEY_INVALID', status: 401 }
+      : normalizedDetail.includes('api key expired')
+        ? { code: 'GEMINI_API_KEY_EXPIRED', status: 401 }
+        : normalizedDetail.includes('model') && normalizedDetail.includes('not found')
+          ? { code: 'GEMINI_MODEL_NOT_FOUND', status: 404 }
+          : normalizedDetail.includes('schema') || normalizedDetail.includes('invalid argument')
+            ? { code: 'GEMINI_INVALID_REQUEST', status: 422 }
+            : { code: `GEMINI_HTTP_${geminiResponse.status}`, status: geminiResponse.status }
     return response({
       error: 'La validación inteligente no está disponible por el momento.',
-      code: `GEMINI_HTTP_${geminiResponse.status}`,
-    }, 503)
+      code: diagnostic.code,
+    }, diagnostic.status)
   }
 
   let parsed: Record<string, unknown> = {}
