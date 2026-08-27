@@ -70,7 +70,7 @@ Deno.serve(async (req) => {
     'Devuelve únicamente un objeto JSON con estas cinco propiedades: isOdometer (booleano), readable (booleano), odometerKm (número decimal sin separador de miles o null), confidence (número de 0 a 1) y message (explicación breve en español).',
   ].join(' ')
 
-  const preferredModel = Deno.env.get('GEMINI_MODEL') || 'gemini-2.5-flash'
+  const preferredModel = Deno.env.get('GEMINI_MODEL') || 'gemini-3.5-flash'
   const requestBody = JSON.stringify({
     contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType, data: imageBase64 } }] }],
     generationConfig: {
@@ -88,7 +88,7 @@ Deno.serve(async (req) => {
 
   // Gemini recomienda reintentar 429/5xx. La segunda opción usa Flash-Lite,
   // que admite imágenes y salidas estructuradas y tiene cuota independiente.
-  const attempts = [preferredModel, preferredModel, 'gemini-2.5-flash-lite']
+  const attempts = [preferredModel, preferredModel, 'gemini-3.5-flash-lite']
   let geminiResponse: Response | null = null
   let lastDetail = ''
   for (let attempt = 0; attempt < attempts.length; attempt += 1) {
