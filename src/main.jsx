@@ -1395,7 +1395,11 @@ function DepartureGpsRequired({ data, driverName = '', driverId = '', assignedVe
     setStatus('Foto guardada correctamente. Revisa la vista previa y escribe manualmente el kilometraje mostrado.');
   };
   const gps = () => {
-    if (!navigator.geolocation) return setStatus('Este navegador no permite GPS.');
+    if (!navigator.geolocation) {
+      setStatus('Este navegador no permite GPS.');
+      window.alert('Este navegador no permite obtener la ubicación GPS. Activa la ubicación del celular y vuelve a “Registrar salida”.');
+      return;
+    }
     setStatus('Obteniendo ubicación y dirección…');
     navigator.geolocation.getCurrentPosition(async position => {
       const { latitude, longitude, accuracy } = position.coords;
@@ -1411,7 +1415,15 @@ function DepartureGpsRequired({ data, driverName = '', driverId = '', assignedVe
       let origin = `GPS: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
       try { const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}`); const place = await response.json(); origin = place.display_name || origin; } catch {}
       change('origin', origin); change('routePoints', [departurePoint]); change('gpsAccuracy', Math.round(accuracy)); setGpsReady(true); setStatus('Origen GPS registrado correctamente.');
-    }, () => { setGpsReady(false); setStatus('Debes permitir la ubicación GPS para confirmar la salida.'); }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+    }, error => {
+      setGpsReady(false);
+      setStatus(error?.code === 1
+        ? 'Debes permitir a Google Chrome usar la ubicación para confirmar la salida.'
+        : 'Activa la ubicación GPS del celular para confirmar la salida.');
+      window.alert(error?.code === 1
+        ? 'Permite a Google Chrome usar la ubicación. Después vuelve a “Registrar salida”.'
+        : 'Activa la ubicación (GPS) de tu celular. Después vuelve a “Registrar salida”.');
+    }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
   };
   const submit = event => {
     event.preventDefault();

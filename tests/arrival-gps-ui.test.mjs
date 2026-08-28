@@ -5,6 +5,14 @@ import { readFile } from 'node:fs/promises';
 const mainSource = await readFile(new URL('../src/main.jsx', import.meta.url), 'utf8');
 const quickStyles = await readFile(new URL('../src/quick.css', import.meta.url), 'utf8');
 
+test('si el GPS falla al registrar una salida muestra el aviso nativo', () => {
+  const departureStart = mainSource.indexOf('function DepartureGpsRequired');
+  const arrivalStart = mainSource.indexOf('function ArrivalSimple');
+  const departureSource = mainSource.slice(departureStart, arrivalStart);
+  assert.match(departureSource, /window\.alert\(error\?\.code === 1/);
+  assert.match(departureSource, /Activa la ubicación \(GPS\) de tu celular/);
+});
+
 test('la llegada solicita el GPS automáticamente al abrirse', () => {
   const arrivalSource = mainSource.slice(mainSource.indexOf('function ArrivalSimple'));
   assert.match(arrivalSource, /useEffect\(\(\) => \{ gps\(\); \}, \[\]\);/);
