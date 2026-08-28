@@ -1607,5 +1607,18 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
 createRoot(document.getElementById('root')).render(<App />);
 
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).then(registration => registration.update()).catch(() => {}));
+  window.addEventListener('load', async () => {
+    try {
+      const workerVersion = 'v102';
+      const workerUrl = `./sw.js?v=${workerVersion}`;
+      const previous = await navigator.serviceWorker.getRegistration('./');
+      const needsReplacement = Boolean(previous && !previous.active?.scriptURL.includes(`v=${workerVersion}`));
+      if (needsReplacement) {
+        await previous.unregister();
+        navigator.serviceWorker.addEventListener('controllerchange', () => window.location.reload(), { once: true });
+      }
+      const registration = await navigator.serviceWorker.register(workerUrl, { scope: './', updateViaCache: 'none' });
+      await registration.update();
+    } catch {}
+  });
 }
