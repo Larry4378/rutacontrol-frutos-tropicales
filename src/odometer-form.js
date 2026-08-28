@@ -11,3 +11,23 @@ export const isPositiveKilometer = value => Number.isFinite(Number(value)) && Nu
 export const isArrivalKilometerGreater = (departureKm, arrivalKm) => (
   isPositiveKilometer(arrivalKm) && Number(arrivalKm) > Number(departureKm)
 );
+
+export const arrivalSubmissionError = ({
+  hasTrip,
+  gpsReady,
+  destination,
+  photoSelected,
+  departureKm,
+  arrivalKm,
+  samePlace = false,
+  distanceMeters = null,
+}) => {
+  if (!hasTrip) return 'No se encontró una salida pendiente para cerrar.';
+  if (!gpsReady || !destination) return 'Actualiza el destino con GPS antes de confirmar la llegada.';
+  if (!photoSelected) return 'Sube la foto del tablero y espera a que termine de guardarse.';
+  if (!isPositiveKilometer(arrivalKm)) return 'Escribe manualmente un kilometraje final válido.';
+  if (samePlace) return 'El destino coincide con el origen. Actualiza el GPS desde otra ubicación.';
+  if (Number.isFinite(distanceMeters) && distanceMeters < 100) return `La llegada está a ${Math.round(distanceMeters)} m del origen. Avanza al menos 100 m y actualiza el GPS.`;
+  if (!isArrivalKilometerGreater(departureKm, arrivalKm)) return 'El kilometraje final debe ser mayor al kilometraje de salida.';
+  return '';
+};

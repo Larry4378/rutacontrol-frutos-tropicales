@@ -4,7 +4,7 @@ import { createWorker } from 'tesseract.js';
 import L from 'leaflet';
 import { supabase } from './supabase';
 import { GPS_TRACKING_MAX_ACCURACY_METERS, gpsDistanceMeters, shouldKeepGpsPoint, stabilizeGpsPoint } from './gps.js';
-import { isArrivalKilometerGreater, isPositiveKilometer, normalizeKilometerInput } from './odometer-form.js';
+import { arrivalSubmissionError, isPositiveKilometer, normalizeKilometerInput } from './odometer-form.js';
 import 'leaflet/dist/leaflet.css';
 import '../styles.css';
 import '../mango.css';
@@ -1432,6 +1432,7 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
   const [gpsReady, setGpsReady] = useState(false);
   const [photoSelected, setPhotoSelected] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [submitError, setSubmitError] = useState('');
   const [clock, setClock] = useState(now());
   const trip = active.find(item => item.id === form.tripId);
   const change = (key, value) => setForm(current => ({ ...current, [key]: value }));
@@ -1445,6 +1446,7 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
     return () => clearInterval(timer);
   }, []);
   const gps = () => {
+    setSubmitError('');
     if (!navigator.geolocation) return setGpsStatus('Este navegador no permite GPS.');
     setGpsReady(false);
     setGpsStatus('Obteniendo ubicación y dirección…');
@@ -1476,6 +1478,7 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
   useEffect(() => { gps(); }, []);
   const odometer = async file => {
     if (!file) return false;
+    setSubmitError('');
     setPhotoSelected(false);
     change('endPhoto', '');
     setStatus('Foto adjuntada. Puedes revisarla abajo mientras se guarda; escribe manualmente el kilometraje final.');
@@ -1488,35 +1491,40 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
   };
   const submit = async event => {
     event.preventDefault();
-    if (!trip || !form.destination) return alert('Registra el GPS de destino antes de confirmar.');
-    if (!photoSelected) return alert('Sube la foto del tablero y espera a que termine de guardarse.');
-    if (!isPositiveKilometer(form.endKm)) return alert('Escribe manualmente un kilometraje final válido.');
-    if (trip.origin && normalizePlace(trip.origin) === normalizePlace(form.destination)) {
-      setGpsReady(false);
-      return setGpsStatus('El destino coincide con el origen. Debes registrar la llegada desde otra ubicación.');
-    }
-    const departurePoint = trip.routePoints?.[0];
-    if (departurePoint && form.arrivalPoint) {
-      const distance = gpsDistanceMeters(departurePoint, form.arrivalPoint);
-      // Un margen de 100 m evita cerrar el recorrido en la misma zona, pero
-      // también absorbe la variación habitual de precisión del GPS.
-      if (distance < 100) {
+    if (saving) return;
+    setSubmitError('');
+    const samePlace = Boolean(trip?.origin && form.destination && normalizePlace(trip.origin) === normalizePlace(form.destination));
+    const departurePoint = trip?.routePoints?.[0];
+    const distance = departurePoint && form.arrivalPoint ? gpsDistanceMeters(departurePoint, form.arrivalPoint) : null;
+    const validationError = arrivalSubmissionError({
+      hasTrip: Boolean(trip),
+      gpsReady,
+      destination: form.destination,
+      photoSelected,
+      departureKm: trip?.startKm,
+      arrivalKm: form.endKm,
+      samePlace,
+      distanceMeters: distance,
+    });
+    if (validationError) {
+      setSubmitError(validationError);
+      if (samePlace || (Number.isFinite(distance) && distance < 100)) {
         setGpsReady(false);
-        return setGpsStatus(`La llegada está a ${Math.round(distance)} m del origen. Avanza al menos 100 m antes de confirmarla.`);
+        setGpsStatus(validationError);
       }
+      return;
     }
-    if (!isArrivalKilometerGreater(trip.startKm, form.endKm)) return alert('El kilometraje final debe ser mayor al kilometraje de salida.');
     setSaving(true);
     setStatus('Guardando llegada y cerrando el recorrido…');
     const registered = await onSave({ ...trip, endKm: form.endKm, endPhoto: form.endPhoto, returnDate: today(), returnTime: now(), destination: form.destination, status: 'Finalizado' });
     if (!registered) {
       setSaving(false);
-      setStatus('La llegada no se pudo confirmar. Revisa los datos e inténtalo nuevamente.');
+      setSubmitError('La llegada no se pudo guardar. Revisa el mensaje mostrado e inténtalo nuevamente.');
     }
   };
   return (
     <dialog open className="quick-departure-modal">
-      <form onSubmit={submit}>
+      <form onSubmit={submit} noValidate>
         <div className="modal-head">
           <div><p className="eyebrow">LLEGADA</p><h2>Registrar llegada</h2></div>
           <button type="button" className="close" onClick={onClose}>×</button>
@@ -1548,13 +1556,14 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
             </div>
             <div className="field full">
               <label>Kilometraje final</label>
-              <input required type="text" inputMode="decimal" pattern="\d+(?:\.\d+)?" value={form.endKm || ''} onChange={event => change('endKm', normalizeKilometerInput(event.target.value))} placeholder="Escribe el kilometraje que muestra el tablero" />
+              <input required type="text" inputMode="decimal" pattern="\d+(?:\.\d+)?" value={form.endKm || ''} onChange={event => { change('endKm', normalizeKilometerInput(event.target.value)); setSubmitError(''); }} placeholder="Escribe el kilometraje que muestra el tablero" />
               <small className="field-help">La foto es obligatoria y podrás revisarla aquí. Después escribe manualmente el kilometraje final; debe ser mayor al de salida.</small>
             </div>
           </div>
+          {submitError && <p className="arrival-submit-error" role="alert">{submitError}</p>}
           <div className="form-actions">
             <button type="button" className="secondary" onClick={onClose} disabled={saving}>Cancelar</button>
-            <button className="primary" disabled={saving || !trip || !gpsReady || !photoSelected || !isArrivalKilometerGreater(trip?.startKm, form.endKm)}>{saving ? 'Guardando llegada…' : 'Confirmar llegada'}</button>
+            <button type="submit" className="primary" disabled={saving}>{saving ? 'Guardando llegada…' : 'Confirmar llegada'}</button>
           </div>
         </>}
       </form>
