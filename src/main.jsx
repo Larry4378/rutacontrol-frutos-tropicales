@@ -1481,10 +1481,10 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
     }, error => {
       setGpsReady(false);
       const message = error?.code === 1
-        ? 'La ubicación está bloqueada. Activa el permiso de ubicación y pulsa “Actualizar destino con GPS”.'
+        ? 'La ubicación está bloqueada. Activa el permiso de ubicación y vuelve a abrir este formulario.'
         : error?.code === 3
-          ? 'El GPS demoró demasiado. Pulsa “Actualizar destino con GPS” para intentarlo nuevamente.'
-          : 'No se pudo obtener la ubicación. Activa el GPS del equipo y pulsa “Actualizar destino con GPS”.';
+          ? 'El GPS demoró demasiado. Cierra y vuelve a abrir este formulario para intentarlo nuevamente.'
+          : 'No se pudo obtener la ubicación. Activa el GPS del equipo y vuelve a abrir este formulario.';
       setGpsStatus(message);
       setSubmitError(message);
     }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
@@ -1566,7 +1566,6 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
             <div className="field full">
               <label>Destino real</label>
               <input required value={form.destination || ''} readOnly placeholder="Obteniendo GPS…" />
-              <button type="button" className="gps-button" onClick={gps}>⌖ Actualizar destino con GPS</button>
             </div>
             <div className="field full">
               <label>Foto del odómetro final</label>

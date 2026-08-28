@@ -26,9 +26,10 @@ test('si la llegada realmente coincide con el origen muestra el aviso superior',
   assert.match(arrivalSource, /if \(samePlace \|\| \(Number\.isFinite\(distance\) && distance < 100\)\) \{[\s\S]*?setGpsStatus\(validationError\);/);
 });
 
-test('el campo de destino y su botón GPS no están ocultos en llegada', () => {
+test('el destino permanece visible y la llegada no muestra un botón GPS manual', () => {
+  const arrivalSource = mainSource.slice(mainSource.indexOf('function ArrivalSimple'));
   assert.match(mainSource, /className="arrival-form"/);
-  assert.match(mainSource, />⌖ Actualizar destino con GPS<\/button>/);
+  assert.doesNotMatch(arrivalSource, /Actualizar destino con GPS/);
   assert.doesNotMatch(quickStyles, /\.arrival-form[^\n{]*nth-of-type\(3\)[^{]*\{\s*display\s*:\s*none/);
   assert.match(quickStyles, /\.departure-form \.form-grid>\.field:nth-of-type\(3\)\{display:none\}/);
 });
