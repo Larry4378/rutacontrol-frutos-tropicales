@@ -1505,7 +1505,6 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
         : 'Activa la ubicación (GPS) de tu celular. Después vuelve a abrir “Registrar llegada”.');
     }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
   };
-  useEffect(() => { gps(); }, []);
   const odometer = async file => {
     if (!file) return false;
     setSubmitError('');

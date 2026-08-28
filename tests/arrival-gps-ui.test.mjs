@@ -13,9 +13,10 @@ test('si el GPS falla al registrar una salida muestra el aviso nativo', () => {
   assert.match(departureSource, /Activa la ubicación \(GPS\) de tu celular/);
 });
 
-test('la llegada solicita el GPS automáticamente al abrirse', () => {
+test('la llegada espera a que el conductor active el GPS con el botón', () => {
   const arrivalSource = mainSource.slice(mainSource.indexOf('function ArrivalSimple'));
-  assert.match(arrivalSource, /useEffect\(\(\) => \{ gps\(\); \}, \[\]\);/);
+  assert.doesNotMatch(arrivalSource, /useEffect\(\(\) => \{ gps\(\); \}, \[\]\);/);
+  assert.match(arrivalSource, /onClick=\{gps\}>⌖ Activar GPS y obtener destino<\/button>/);
 });
 
 test('adjuntar la foto no vuelve a ejecutar ni reemplaza el GPS de llegada', () => {
