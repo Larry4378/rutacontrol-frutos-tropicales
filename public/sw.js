@@ -1,4 +1,4 @@
-const CACHE_NAME = 'rutacontrol-v100';
+const CACHE_NAME = 'rutacontrol-v101';
 const APP_SHELL = ['./', './index.html'];
 
 self.addEventListener('install', event => {
@@ -12,6 +12,8 @@ self.addEventListener('activate', event => {
 
 self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return;
+  const requestUrl = new URL(event.request.url);
+  if (requestUrl.protocol !== 'http:' && requestUrl.protocol !== 'https:') return;
   event.respondWith(fetch(event.request).then(response => {
     const copy = response.clone();
     caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy));
