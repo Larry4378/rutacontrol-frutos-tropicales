@@ -1563,7 +1563,7 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
           {submitError && <p className="arrival-submit-error" role="alert">{submitError}</p>}
           <div className="form-actions">
             <button type="button" className="secondary" onClick={onClose} disabled={saving}>Cancelar</button>
-            <button type="submit" className="primary" disabled={saving}>{saving ? 'Guardando llegada…' : 'Confirmar llegada'}</button>
+            <button type="button" className="primary" disabled={saving} onClick={submit}>{saving ? 'Guardando llegada…' : 'Confirmar llegada'}</button>
           </div>
         </>}
       </form>
