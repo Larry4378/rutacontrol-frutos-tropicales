@@ -23,6 +23,7 @@
 .gps-button{margin-top:7px;border:1px solid #99c76d;border-radius:7px;padding:7px 9px;background:#f3faea;color:#2d6a38;font:700 11px "DM Sans";cursor:pointer}.gps-button:hover{background:#e3f2d4}
 .photo-source{display:flex;flex-wrap:wrap;gap:8px}.photo-source label{position:relative;overflow:hidden;border:1px solid #99c76d;border-radius:7px;padding:8px 10px;background:#f3faea;color:#2d6a38;font:700 11px "DM Sans";cursor:pointer}.photo-source label:hover{background:#e3f2d4}.photo-source input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}
 .photo-source .photo-loaded{flex-basis:100%;color:#28703c;font:700 11px "DM Sans";overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.odometer-photo-preview{flex-basis:100%;margin:4px 0 0;padding:8px;border:1px solid #d7e7c4;border-radius:10px;background:#f8fbf4}.odometer-photo-preview img{display:block;width:100%;max-height:300px;object-fit:contain;border-radius:7px;background:#172119}.odometer-photo-preview figcaption{margin-top:7px;color:#526456;font:600 11px "DM Sans";text-align:center}
 .quick-departure-modal .plate-capture{display:none}
 .field-help,.km-correction{display:none}
 .trip-filters{padding:14px;background:#fffffff2;border:1px solid var(--line);border-radius:11px}
