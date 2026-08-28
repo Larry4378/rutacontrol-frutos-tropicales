@@ -33,3 +33,9 @@ test('el destino permanece visible y la llegada no muestra un botón GPS manual'
   assert.doesNotMatch(quickStyles, /\.arrival-form[^\n{]*nth-of-type\(3\)[^{]*\{\s*display\s*:\s*none/);
   assert.match(quickStyles, /\.departure-form \.form-grid>\.field:nth-of-type\(3\)\{display:none\}/);
 });
+
+test('si el GPS falla muestra un aviso nativo para activar la ubicación', () => {
+  const arrivalSource = mainSource.slice(mainSource.indexOf('function ArrivalSimple'));
+  assert.match(arrivalSource, /window\.alert\(error\?\.code === 1/);
+  assert.match(arrivalSource, /Activa la ubicación \(GPS\) de tu celular/);
+});

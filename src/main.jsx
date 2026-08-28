@@ -1451,6 +1451,7 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
       const message = 'Este navegador no permite obtener la ubicación GPS.';
       setGpsStatus(message);
       setSubmitError(message);
+      window.alert('Este navegador no permite obtener la ubicación GPS. Activa la ubicación del celular y vuelve a abrir “Registrar llegada”.');
       return;
     }
     setGpsReady(false);
@@ -1487,6 +1488,9 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
           : 'No se pudo obtener la ubicación. Activa el GPS del equipo y vuelve a abrir este formulario.';
       setGpsStatus(message);
       setSubmitError(message);
+      window.alert(error?.code === 1
+        ? 'Permite a Google Chrome usar la ubicación. Después vuelve a abrir “Registrar llegada”.'
+        : 'Activa la ubicación (GPS) de tu celular. Después vuelve a abrir “Registrar llegada”.');
     }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
   };
   useEffect(() => { gps(); }, []);
