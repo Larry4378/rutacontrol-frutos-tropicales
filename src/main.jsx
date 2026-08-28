@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { createWorker } from 'tesseract.js';
 import L from 'leaflet';
 import { supabase } from './supabase';
+import { GPS_TRACKING_MAX_ACCURACY_METERS, gpsDistanceMeters, shouldKeepGpsPoint, stabilizeGpsPoint } from './gps.js';
 import 'leaflet/dist/leaflet.css';
 import '../styles.css';
 import '../mango.css';
@@ -16,41 +17,9 @@ const id = () => crypto.randomUUID();
 const date = value => value ? new Intl.DateTimeFormat('es-PE', { dateStyle: 'medium' }).format(new Date(`${value}T12:00:00`)) : '—';
 const money = value => `S/ ${Number(value || 0).toFixed(2)}`;
 const currentKm = (data, vehicle) => Math.max(Number(vehicle.km || 0), ...data.trips.filter(t => t.vehicleId === vehicle.id).map(t => Number(t.endKm || t.startKm || 0)));
-const gpsDistanceMeters = (previous, point) => {
-  const rad = value => value * Math.PI / 180;
-  const lat = rad(point.lat - previous.lat);
-  const lng = rad(point.lng - previous.lng);
-  const a = Math.sin(lat / 2) ** 2 + Math.cos(rad(previous.lat)) * Math.cos(rad(point.lat)) * Math.sin(lng / 2) ** 2;
-  return 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-};
 const gpsRouteKm = points => (points || []).slice(1).reduce((total, point, index) => {
   return total + gpsDistanceMeters(points[index], point) / 1000;
 }, 0);
-// Para mostrar el vehículo sobre la vía real, no se usan lecturas imprecisas.
-// El GPS puede informar una posición válida pero con decenas de metros de error.
-const GPS_TRACKING_MAX_ACCURACY_METERS = 25;
-const GPS_TRACKING_MIN_INTERVAL_MS = 4000;
-// El GPS de un teléfono puede enviar saltos al recuperar señal. Solo se
-// conservan puntos con precisión razonable y desplazamientos físicamente posibles.
-const shouldKeepGpsPoint = (previous, point) => {
-  if (!Number.isFinite(point.lat) || !Number.isFinite(point.lng) || !Number.isFinite(point.accuracy) || point.accuracy > GPS_TRACKING_MAX_ACCURACY_METERS) return false;
-  if (!previous) return true;
-  const previousTimestamp = Number(previous.timestamp || Date.parse(previous.at || ''));
-  // Un teléfono puede entregar una posición antigua después de recuperar señal.
-  // Nunca debe dibujarse después del último punto válido porque adelantaría la línea.
-  if (Number.isFinite(previousTimestamp) && point.timestamp <= previousTimestamp) return false;
-  const distance = gpsDistanceMeters(previous, point);
-  const seconds = Number.isFinite(previousTimestamp) ? Math.max(0, (point.timestamp - previousTimestamp) / 1000) : 0;
-  const uncertainty = Math.max(6, Number(previous.accuracy || 0) + Number(point.accuracy || 0));
-  // Se registra una posición cada pocos segundos. Así no se dibujan los rebotes
-  // normales de un teléfono detenido ni se mueve el ícono antes que el vehículo.
-  if (seconds * 1000 < GPS_TRACKING_MIN_INTERVAL_MS) return false;
-  const minimumMovement = Math.max(8, Math.min(16, uncertainty * 0.25));
-  if (distance < minimumMovement && point.accuracy >= Number(previous.accuracy || 0) - 5) return false;
-  // 130 km/h más un margen por precisión: impide trayectos falsos por saltos GPS.
-  const maximumDistance = Math.max(60, seconds * 36 + uncertainty);
-  return seconds === 0 ? distance <= uncertainty : distance <= maximumDistance;
-};
 // Un recorrido se considera pendiente solo mientras no tenga kilometraje final
 // ni haya sido confirmado como finalizado en Supabase.
 const isTripOpen = trip => (trip?.endKm === null || trip?.endKm === undefined || trip?.endKm === '') && trip?.status !== 'Finalizado';
@@ -757,11 +726,19 @@ function RouteMap({data,profile,driverPreview,onUpdate}) {
   const active=data.trips.find(isTripOpen);
   const isTripDriver = Boolean(profile?.role === 'driver' && !driverPreview && String(active?.driverProfileId || active?.driver || '') === String(profile?.id || ''));
   const mapNode=useRef(null); const map=useRef(null); const marker=useRef(null); const watcher=useRef(null); const record=useRef(active); const manualMapView=useRef(false); const automaticMapMove=useRef(false);
+  const markerAnimation=useRef(null); const saveInFlight=useRef(false); const pendingRouteSave=useRef(null);
   const [tracking,setTracking]=useState(false);
   const [resumeCycle,setResumeCycle]=useState(0);
+  const [livePoint,setLivePoint]=useState(null);
   const [message,setMessage]=useState(active?'GPS activándose para seguir el vehículo.':'No hay un vehículo en ruta. Registra una salida primero.');
-  useEffect(()=>{record.current=active;},[active]);
-  useEffect(()=>{manualMapView.current=false;},[active?.id]);
+  useEffect(()=>{
+    if(!active){record.current=null;return;}
+    const current=record.current;
+    // Una respuesta más antigua del sondeo nunca debe reemplazar los puntos que
+    // el teléfono ya tiene pendientes de guardar.
+    if(!current||current.id!==active.id||(active.routePoints?.length||0)>=(current.routePoints?.length||0)) record.current=active;
+  },[active]);
+  useEffect(()=>{manualMapView.current=false;setLivePoint(null);pendingRouteSave.current=null;},[active?.id]);
   useEffect(()=>{
     const restartGpsWhenReturning=()=>{
       if(document.visibilityState !== 'visible') return;
@@ -776,18 +753,40 @@ function RouteMap({data,profile,driverPreview,onUpdate}) {
   },[]);
   useEffect(()=>{if(!mapNode.current||map.current)return;map.current=L.map(mapNode.current,{zoomControl:false,attributionControl:false}).setView([-5.1945,-80.6328],11);const markManualView=()=>{if(!automaticMapMove.current)manualMapView.current=true;};map.current.on('dragstart',markManualView);map.current.on('zoomstart',markManualView);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap contributors',maxNativeZoom:19,maxZoom:20}).addTo(map.current);L.control.zoom({position:'bottomright'}).addTo(map.current);L.control.attribution({position:'bottomleft',prefix:'© OpenStreetMap'}).addTo(map.current);return()=>{map.current?.off('dragstart',markManualView);map.current?.off('zoomstart',markManualView);map.current?.remove();map.current=null;};},[]);
   useEffect(()=>{
-    const points=(active?.routePoints||[]).map(point=>[point.lat,point.lng]);
+    const storedLast=(active?.routePoints||[]).at(-1);
+    const latest=livePoint||storedLast;
     if(!map.current)return;
-    if(!points.length){
+    if(!latest){
       if(marker.current){marker.current.remove();marker.current=null;}
       return;
     }
-    const last=points.at(-1);
+    const last=[latest.lat,latest.lng];
     const vehicle=data.vehicles.find(item=>item.id===active.vehicleId);
     const symbol=String(vehicle?.vehicle_type||'').toLowerCase().includes('moto')?'🏍️':'🚗';
     const icon=L.divIcon({className:'moving-vehicle-icon',html:`<span class="vehicle-map-pin" title="Vehículo en movimiento"><i>${symbol}</i></span>`,iconSize:[48,48],iconAnchor:[24,24]});
     if(!marker.current) marker.current=L.marker(last,{icon}).addTo(map.current);
-    else { marker.current.setIcon(icon); marker.current.setLatLng(last); }
+    else {
+      marker.current.setIcon(icon);
+      if(markerAnimation.current) cancelAnimationFrame(markerAnimation.current);
+      const from=marker.current.getLatLng();
+      const target={lat:Number(latest.lat),lng:Number(latest.lng)};
+      const distance=gpsDistanceMeters(from,target);
+      if(!Number.isFinite(distance)||distance>180){
+        marker.current.setLatLng(target);
+      } else {
+        const started=performance.now();
+        const duration=700;
+        const animate=nowTime=>{
+          const progress=Math.min(1,(nowTime-started)/duration);
+          // Suavizado visual sin extrapolar: el ícono siempre termina en la
+          // última coordenada real y nunca se dibuja por delante de ella.
+          const eased=1-Math.pow(1-progress,3);
+          marker.current?.setLatLng({lat:from.lat+(target.lat-from.lat)*eased,lng:from.lng+(target.lng-from.lng)*eased});
+          if(progress<1) markerAnimation.current=requestAnimationFrame(animate);
+        };
+        markerAnimation.current=requestAnimationFrame(animate);
+      }
+    }
     if(!manualMapView.current){
       automaticMapMove.current=true;
       // Mostrar calles locales y el vehículo actual, sin dibujar el recorrido histórico.
@@ -795,7 +794,20 @@ function RouteMap({data,profile,driverPreview,onUpdate}) {
       window.setTimeout(()=>{automaticMapMove.current=false;},750);
     }
     setTimeout(()=>map.current?.invalidateSize(),80);
-  },[active?.routePoints,data.vehicles]);
+  },[active?.routePoints,livePoint,data.vehicles]);
+  const queueRouteSave = next => {
+    pendingRouteSave.current=next;
+    if(saveInFlight.current)return;
+    const flush=async()=>{
+      const pending=pendingRouteSave.current;
+      if(!pending)return;
+      pendingRouteSave.current=null;
+      saveInFlight.current=true;
+      try{await onUpdate({...pending,_routeTracking:true});}
+      finally{saveInFlight.current=false;if(pendingRouteSave.current)flush();}
+    };
+    flush();
+  };
   useEffect(()=>{
     if(watcher.current){navigator.geolocation.clearWatch(watcher.current);watcher.current=null;}
     if(!active?.id){setTracking(false);setMessage('No hay un vehículo en ruta. Registra una salida primero.');return;}
@@ -807,19 +819,23 @@ function RouteMap({data,profile,driverPreview,onUpdate}) {
       const previous=record.current;
       if(!previous||previous.id!==tripId||!isTripOpen(previous))return;
       const timestamp=Number(position.timestamp || Date.now());
-      const point={lat:position.coords.latitude,lng:position.coords.longitude,at:new Date(timestamp).toISOString(),timestamp,accuracy:Math.round(position.coords.accuracy)};
+      const rawPoint={lat:position.coords.latitude,lng:position.coords.longitude,at:new Date(timestamp).toISOString(),timestamp,accuracy:Math.round(position.coords.accuracy),speed:position.coords.speed,heading:position.coords.heading};
       const lastPoint=previous.routePoints?.at(-1);
-      if (point.accuracy > GPS_TRACKING_MAX_ACCURACY_METERS) {
-        setMessage(`Esperando una señal GPS más precisa (${point.accuracy} m). El vehículo se actualizará al mejorar la ubicación.`);
+      if (rawPoint.accuracy > GPS_TRACKING_MAX_ACCURACY_METERS) {
+        setMessage(`Esperando una señal GPS más precisa (${rawPoint.accuracy} m). El vehículo se actualizará al mejorar la ubicación.`);
         return;
       }
-      if(!shouldKeepGpsPoint(lastPoint,point)) return;
+      if(!shouldKeepGpsPoint(lastPoint,rawPoint)) return;
+      const point=stabilizeGpsPoint(lastPoint,rawPoint);
       const next={...previous,routePoints:[...(previous.routePoints||[]),point]};
       record.current=next;
+      // El marcador se actualiza de inmediato; el guardado en la nube se hace
+      // en paralelo y de forma ordenada para no frenar la vista del conductor.
+      setLivePoint(point);
       setMessage(`Ubicación actualizada con precisión de ${point.accuracy} m.`);
-      onUpdate({ ...next, _routeTracking: true });
+      queueRouteSave(next);
     },()=>{setTracking(false);setMessage('No se pudo actualizar el GPS. Activa la ubicación precisa y mantén abierta la aplicación.');},{enableHighAccuracy:true,maximumAge:0,timeout:15000});
-    return()=>{if(watcher.current){navigator.geolocation.clearWatch(watcher.current);watcher.current=null;}};
+    return()=>{if(watcher.current){navigator.geolocation.clearWatch(watcher.current);watcher.current=null;}if(markerAnimation.current){cancelAnimationFrame(markerAnimation.current);markerAnimation.current=null;}};
   },[active?.id,isTripDriver,resumeCycle]);
   const focusVehicle = () => {
     const last = record.current?.routePoints?.at(-1);
