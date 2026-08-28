@@ -1582,6 +1582,7 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
             <div className="field full">
               <label>Destino real</label>
               <input required value={form.destination || ''} readOnly placeholder="Obteniendo GPS…" />
+              {!gpsReady && <button type="button" className="gps-button" onClick={gps}>⌖ Activar GPS y obtener destino</button>}
             </div>
             <div className="field full">
               <label>Foto del odómetro final</label>
