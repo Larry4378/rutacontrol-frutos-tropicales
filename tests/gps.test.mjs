@@ -59,3 +59,30 @@ test('tras una pausa larga usa la nueva posición real para recuperarse', () => 
   const raw = { ...base, lat: base.lat + 0.0002, timestamp: 12_500 };
   assert.deepEqual(stabilizeGpsPoint(base, raw), raw);
 });
+
+test('en un recorrido continuo el marcador nunca queda delante del GPS real', () => {
+  let previous = base;
+  for (let step = 1; step <= 30; step += 1) {
+    const raw = {
+      ...base,
+      lat: base.lat + step * 0.00008,
+      timestamp: base.timestamp + step * 1_100,
+      at: new Date(base.timestamp + step * 1_100).toISOString(),
+      speed: 8,
+    };
+    assert.equal(shouldKeepGpsPoint(previous, raw), true);
+    const stable = stabilizeGpsPoint(previous, raw);
+    assert.ok(stable.lat <= raw.lat, `el punto ${step} no debe adelantarse`);
+    assert.ok(stable.lat >= previous.lat, `el punto ${step} no debe retroceder`);
+    previous = stable;
+  }
+});
+
+test('un salto falso intermedio no contamina las posiciones siguientes', () => {
+  const validFirst = { ...base, lat: base.lat + 0.00008, timestamp: 2_100, speed: 8 };
+  const stableFirst = stabilizeGpsPoint(base, validFirst);
+  const falseJump = { ...base, lat: base.lat + 0.004, timestamp: 3_200, speed: 8 };
+  assert.equal(shouldKeepGpsPoint(stableFirst, falseJump), false);
+  const validNext = { ...base, lat: base.lat + 0.00016, timestamp: 3_200, speed: 8 };
+  assert.equal(shouldKeepGpsPoint(stableFirst, validNext), true);
+});

@@ -4,6 +4,7 @@ import { createWorker } from 'tesseract.js';
 import L from 'leaflet';
 import { supabase } from './supabase';
 import { GPS_TRACKING_MAX_ACCURACY_METERS, gpsDistanceMeters, shouldKeepGpsPoint, stabilizeGpsPoint } from './gps.js';
+import { isArrivalKilometerGreater, isPositiveKilometer, normalizeKilometerInput } from './odometer-form.js';
 import 'leaflet/dist/leaflet.css';
 import '../styles.css';
 import '../mango.css';
@@ -29,13 +30,6 @@ const normalizePlace = value => String(value || '')
   .toLocaleLowerCase('es-PE')
   .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
   .replace(/[^a-z0-9]/g, '');
-// Los odómetros pueden tener un decimal, pero nunca letras, signos ni exponentes.
-// Se normaliza también lo que se pega desde el portapapeles.
-const normalizeKilometerInput = value => {
-  const text = String(value ?? '').replace(',', '.').replace(/[^\d.]/g, '');
-  const decimalAt = text.indexOf('.');
-  return decimalAt < 0 ? text : `${text.slice(0, decimalAt + 1)}${text.slice(decimalAt + 1).replaceAll('.', '')}`;
-};
 const receiptNumber = value => {
   const raw = String(value || '').replace(/[^\d.,]/g, '');
   if (!raw) return NaN;
@@ -1350,12 +1344,36 @@ const fileToBase64 = file => new Promise((resolve, reject) => {
   reader.readAsDataURL(file);
 });
 
+// Gemini recibe una copia más liviana que la destinada a Storage. Mantener el
+// lado mayor en 1280 px conserva los dígitos del tablero, pero reduce el tiempo
+// de subida y el procesamiento de la IA en conexiones móviles.
+const prepareOdometerValidationImage = async file => {
+  if (!window.createImageBitmap) return file;
+  const image = await createImageBitmap(file);
+  try {
+    const maxSide = 1280;
+    const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
+    if (scale === 1 && file.type === 'image/jpeg' && file.size <= 900 * 1024) return file;
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(image.width * scale));
+    canvas.height = Math.max(1, Math.round(image.height * scale));
+    canvas.getContext('2d', { alpha: false }).drawImage(image, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.76));
+    if (!blob) return file;
+    return new File([blob], 'odometro-validacion.jpg', { type: 'image/jpeg', lastModified: Date.now() });
+  } finally {
+    image.close?.();
+  }
+};
+
 const analyzeOdometerWithGemini = async (file, { minimumKm = 0, stage = 'departure' } = {}) => {
-  const imageBase64 = await fileToBase64(file);
+  let validationFile = file;
+  try { validationFile = await prepareOdometerValidationImage(file); } catch {}
+  const imageBase64 = await fileToBase64(validationFile);
   const { data, error } = await supabase.functions.invoke('analyze-odometer', {
     body: {
       imageBase64,
-      mimeType: file.type || 'image/jpeg',
+      mimeType: validationFile.type || 'image/jpeg',
       minimumKm: Number(minimumKm) || 0,
       stage,
     },
@@ -1487,9 +1505,8 @@ function DepartureGpsRequired({ data, driverName = '', driverId = '', assignedVe
     if (!file) return;
     // Solo una foto nítida y validada del tablero permite registrar la salida.
     setPhotoSelected(false);
-    change('startKm', '');
     change('startPhoto', '');
-    setStatus('Leyendo el odómetro…');
+    setStatus('Validando que la foto muestre el tablero y el kilometraje…');
     try {
       const result = await recognizeOdometerKm(file, {
         minimumKm: assignedVehicle ? currentKm(data, assignedVehicle) : 0,
@@ -1498,10 +1515,7 @@ function DepartureGpsRequired({ data, driverName = '', driverId = '', assignedVe
       });
       const km = result.km;
       if (Number.isFinite(km)) {
-        change('startKm', String(km));
-        const label = result.source === 'gemini' ? 'Tablero validado y kilometraje detectado' : 'Kilometraje detectado';
-        const warning = result.referenceMismatch ? ' La lectura es menor al último kilometraje registrado; revisa ese dato anterior en Vehículos.' : '';
-        setStatus(`${label}: ${km.toLocaleString('es-PE', { maximumFractionDigits: 1 })} km.${warning} Guardando foto validada…`);
+        setStatus('Tablero y kilometraje visibles. Foto validada; escribe manualmente el kilometraje mostrado. Guardando foto…');
         return true;
       } else {
         setStatus(result.message || 'La foto no permite leer el odómetro. Toma nuevamente una foto clara del tablero.');
@@ -1515,6 +1529,7 @@ function DepartureGpsRequired({ data, driverName = '', driverId = '', assignedVe
   const storeDeparturePhoto = ({ path }) => {
     change('startPhoto', path);
     setPhotoSelected(true);
+    setStatus('Foto del tablero guardada correctamente. Escribe manualmente el kilometraje que aparece en la foto.');
   };
   const gps = () => {
     if (!navigator.geolocation) return setStatus('Este navegador no permite GPS.');
@@ -1539,10 +1554,11 @@ function DepartureGpsRequired({ data, driverName = '', driverId = '', assignedVe
     event.preventDefault();
     if (pendingTrip) return alert('Primero debes registrar la llegada de tu salida pendiente.');
     if (!gpsReady) return;
-    if (!photoSelected || !form.startKm) return alert('Debes subir una foto clara y validada del tablero antes de confirmar.');
+    if (!photoSelected) return alert('Debes subir una foto clara y validada del tablero antes de confirmar.');
+    if (!isPositiveKilometer(form.startKm)) return alert('Escribe manualmente un kilometraje de salida válido.');
     onSave({ ...form, id: id(), departureDate: today(), departureTime: now(), status: 'En ruta' });
   };
-  return <><dialog open className="quick-departure-modal"><form onSubmit={submit}><div className="modal-head"><div><p className="eyebrow">SALIDA</p><h2>Registrar salida rápida</h2></div><button type="button" className="close" onClick={onClose}>×</button></div><p className="live-clock">Hora actual: <b>{clock}</b></p>{pendingTrip ? <><p className="empty-message">Ya tienes una salida pendiente con <b>{vehicleName(data, pendingTrip.vehicleId)}</b>. Registra primero tu llegada para iniciar otro recorrido.</p><div className="form-actions"><button type="button" className="primary" onClick={onClose}>Entendido</button></div></> : <>{status && <p className="ocr-status" aria-live="polite">{status}</p>}<div className="form-grid"><div className="field full"><label>Vehículo asignado</label><select required value={form.vehicleId || ''} onChange={event => change('vehicleId', event.target.value)}>{assignedVehicleId && <option value={assignedVehicleId}>{assignedLabel || 'Vehículo asignado'}</option>}{!assignedVehicleId && <option value="">Seleccionar vehículo</option>}{data.vehicles.filter(vehicle => String(vehicle.id) !== String(assignedVehicleId)).map(vehicle => <option key={vehicle.id} value={vehicle.id}>{vehicle.plate} · {vehicle.brand}</option>)}</select><small className="field-help">Tu vehículo aparece por defecto. Cámbialo solo si ese día utilizas otra movilidad.</small></div><div className="field"><label>Fecha</label><input type="date" value={form.departureDate} readOnly /></div><div className="field"><label>Hora</label><input type="time" step="1" value={form.departureTime} readOnly /></div><div className="field"><label>Conductor</label><input required value={form.driver || ''} onChange={event => change('driver', event.target.value)} readOnly={Boolean(driverName)} placeholder="Se completa al iniciar sesión" /></div><div className="field"><label>Origen detectado por GPS</label><input required value={form.origin || ''} readOnly placeholder="Activa GPS para obtener la dirección" /><button type="button" className="gps-button" onClick={gps}>⌖ Activar GPS y obtener origen</button></div><div className="field full"><label>Foto del odómetro de salida</label><PhotoSource onChange={event => ocr(event.target.files?.[0])} onStored={storeDeparturePhoto} /></div><div className="field full"><label>Kilometraje de salida</label><input required type="number" min="0" step="0.1" value={form.startKm || ''} readOnly placeholder="Se completa automáticamente desde una foto validada" /><small className="field-help">Debes tomar una foto clara del tablero. No se permite escribir el kilometraje manualmente.</small></div></div><div className="form-actions"><button type="button" className="secondary" onClick={onClose}>Cancelar</button><button className="primary" disabled={!gpsReady || !photoSelected || !form.startKm}>Confirmar salida</button></div></>}</form></dialog>{!pendingTrip && <EvidenceInjector />}</>;
+  return <><dialog open className="quick-departure-modal"><form onSubmit={submit}><div className="modal-head"><div><p className="eyebrow">SALIDA</p><h2>Registrar salida rápida</h2></div><button type="button" className="close" onClick={onClose}>×</button></div><p className="live-clock">Hora actual: <b>{clock}</b></p>{pendingTrip ? <><p className="empty-message">Ya tienes una salida pendiente con <b>{vehicleName(data, pendingTrip.vehicleId)}</b>. Registra primero tu llegada para iniciar otro recorrido.</p><div className="form-actions"><button type="button" className="primary" onClick={onClose}>Entendido</button></div></> : <>{status && <p className="ocr-status" aria-live="polite">{status}</p>}<div className="form-grid"><div className="field full"><label>Vehículo asignado</label><select required value={form.vehicleId || ''} onChange={event => change('vehicleId', event.target.value)}>{assignedVehicleId && <option value={assignedVehicleId}>{assignedLabel || 'Vehículo asignado'}</option>}{!assignedVehicleId && <option value="">Seleccionar vehículo</option>}{data.vehicles.filter(vehicle => String(vehicle.id) !== String(assignedVehicleId)).map(vehicle => <option key={vehicle.id} value={vehicle.id}>{vehicle.plate} · {vehicle.brand}</option>)}</select><small className="field-help">Tu vehículo aparece por defecto. Cámbialo solo si ese día utilizas otra movilidad.</small></div><div className="field"><label>Fecha</label><input type="date" value={form.departureDate} readOnly /></div><div className="field"><label>Hora</label><input type="time" step="1" value={form.departureTime} readOnly /></div><div className="field"><label>Conductor</label><input required value={form.driver || ''} onChange={event => change('driver', event.target.value)} readOnly={Boolean(driverName)} placeholder="Se completa al iniciar sesión" /></div><div className="field"><label>Origen detectado por GPS</label><input required value={form.origin || ''} readOnly placeholder="Activa GPS para obtener la dirección" /><button type="button" className="gps-button" onClick={gps}>⌖ Activar GPS y obtener origen</button></div><div className="field full"><label>Foto del odómetro de salida</label><PhotoSource onChange={event => ocr(event.target.files?.[0])} onStored={storeDeparturePhoto} /></div><div className="field full"><label>Kilometraje de salida</label><input required type="text" inputMode="decimal" pattern="\d+(?:\.\d+)?" value={form.startKm || ''} onChange={event => change('startKm', normalizeKilometerInput(event.target.value))} placeholder="Escribe el kilometraje que muestra el tablero" /><small className="field-help">La foto validada es obligatoria. Después escribe manualmente el kilometraje que aparece en el tablero.</small></div></div><div className="form-actions"><button type="button" className="secondary" onClick={onClose}>Cancelar</button><button className="primary" disabled={!gpsReady || !photoSelected || !isPositiveKilometer(form.startKm)}>Confirmar salida</button></div></>}</form></dialog>{!pendingTrip && <EvidenceInjector />}</>;
 }
 
 function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }) {
@@ -1598,7 +1614,7 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
   const odometer = async file => {
     if (!file) return false;
     // La llegada solo se registra con una foto clara y validada del tablero.
-    setPhotoSelected(false); change('endKm', ''); change('endPhoto', ''); setStatus('Validando la foto del tablero…');
+    setPhotoSelected(false); change('endPhoto', ''); setStatus('Validando que la foto muestre el tablero y el kilometraje…');
     try {
       const result = await recognizeOdometerKm(file, {
         minimumKm: Number(trip?.startKm) || 0,
@@ -1607,10 +1623,7 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
       });
       const km = result.km;
       if (Number.isFinite(km)) {
-        change('endKm', String(km));
-        const label = result.source === 'gemini' ? 'Tablero validado y kilometraje final detectado' : 'Kilometraje final detectado';
-        const warning = result.referenceMismatch ? ' La lectura es menor al kilometraje de salida; toma otra foto antes de confirmar.' : '';
-        setStatus(`${label}: ${km.toLocaleString('es-PE', { maximumFractionDigits: 1 })} km.${warning} Guardando foto validada…`);
+        setStatus('Tablero y kilometraje visibles. Foto validada; escribe manualmente el kilometraje final. Guardando foto…');
         return true;
       } else {
         setStatus(result.message || 'La foto no permite leer el odómetro. Toma nuevamente una foto clara del tablero.');
@@ -1624,10 +1637,13 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
   const storeArrivalPhoto = ({ path }) => {
     change('endPhoto', path);
     setPhotoSelected(true);
+    setStatus('Foto del tablero guardada correctamente. Escribe manualmente el kilometraje final que aparece en la foto.');
   };
   const submit = async event => {
     event.preventDefault();
-    if (!trip || !photoSelected || !form.endKm || !form.destination) return alert('Registra GPS de destino y sube una foto clara y validada del tablero antes de confirmar.');
+    if (!trip || !form.destination) return alert('Registra el GPS de destino antes de confirmar.');
+    if (!photoSelected) return alert('Sube una foto clara y validada del tablero antes de confirmar.');
+    if (!isPositiveKilometer(form.endKm)) return alert('Escribe manualmente un kilometraje final válido.');
     if (trip.origin && normalizePlace(trip.origin) === normalizePlace(form.destination)) {
       setGpsReady(false);
       return setGpsStatus('El destino coincide con el origen. Debes registrar la llegada desde otra ubicación.');
@@ -1642,7 +1658,7 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
         return setGpsStatus(`La llegada está a ${Math.round(distance)} m del origen. Avanza al menos 100 m antes de confirmarla.`);
       }
     }
-    if (Number(form.endKm) <= Number(trip.startKm)) return alert('El kilometraje final debe ser mayor al kilometraje de salida.');
+    if (!isArrivalKilometerGreater(trip.startKm, form.endKm)) return alert('El kilometraje final debe ser mayor al kilometraje de salida.');
     setSaving(true);
     setStatus('Guardando llegada y cerrando el recorrido…');
     const registered = await onSave({ ...trip, endKm: form.endKm, endPhoto: form.endPhoto, returnDate: today(), returnTime: now(), destination: form.destination, status: 'Finalizado' });
@@ -1685,13 +1701,13 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
             </div>
             <div className="field full">
               <label>Kilometraje final</label>
-              <input required type="number" min={trip?.startKm || 0} step="0.1" value={form.endKm || ''} readOnly placeholder="Se completa automáticamente desde una foto validada" />
-              <small className="field-help">Debes tomar una foto clara del tablero. No se permite escribir el kilometraje manualmente.</small>
+              <input required type="text" inputMode="decimal" pattern="\d+(?:\.\d+)?" value={form.endKm || ''} onChange={event => change('endKm', normalizeKilometerInput(event.target.value))} placeholder="Escribe el kilometraje que muestra el tablero" />
+              <small className="field-help">La foto validada es obligatoria. Después escribe manualmente el kilometraje final; debe ser mayor al de salida.</small>
             </div>
           </div>
           <div className="form-actions">
             <button type="button" className="secondary" onClick={onClose} disabled={saving}>Cancelar</button>
-            <button className="primary" disabled={saving || !trip || !gpsReady || !photoSelected || !form.endKm}>{saving ? 'Guardando llegada…' : 'Confirmar llegada'}</button>
+            <button className="primary" disabled={saving || !trip || !gpsReady || !photoSelected || !isArrivalKilometerGreater(trip?.startKm, form.endKm)}>{saving ? 'Guardando llegada…' : 'Confirmar llegada'}</button>
           </div>
         </>}
       </form>

@@ -1,4 +1,10 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import {
+  FAST_GEMINI_MODEL,
+  buildGeminiAttempts,
+  clampGeminiTimeoutMs,
+  shouldRetryGeminiStatus,
+} from './retry.js'
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -70,12 +76,28 @@ Deno.serve(async (req) => {
     'Devuelve únicamente un objeto JSON con estas cinco propiedades: isOdometer (booleano), readable (booleano), odometerKm (número decimal sin separador de miles o null), confidence (número de 0 a 1) y message (explicación breve en español).',
   ].join(' ')
 
-  const preferredModel = Deno.env.get('GEMINI_MODEL') || 'gemini-3.5-flash'
+  // Flash-Lite acepta imágenes y está optimizado por Google para baja latencia.
+  // Esta validación es una extracción corta, por lo que no necesita el nivel
+  // de razonamiento medio del modelo Flash completo.
+  const preferredModel = Deno.env.get('GEMINI_MODEL')?.trim() || FAST_GEMINI_MODEL
+  const timeoutMs = clampGeminiTimeoutMs(Deno.env.get('GEMINI_TIMEOUT_MS'))
   const requestBody = JSON.stringify({
     contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType, data: imageBase64 } }] }],
     generationConfig: {
-      temperature: 0,
       responseMimeType: 'application/json',
+      maxOutputTokens: 220,
+      thinkingConfig: { thinkingLevel: 'MINIMAL' },
+      responseJsonSchema: {
+        type: 'object',
+        required: ['isOdometer', 'readable', 'odometerKm', 'confidence', 'message'],
+        properties: {
+          isOdometer: { type: 'boolean' },
+          readable: { type: 'boolean' },
+          odometerKm: { type: ['number', 'null'] },
+          confidence: { type: 'number', minimum: 0, maximum: 1 },
+          message: { type: 'string' },
+        },
+      },
     },
   })
 
@@ -83,24 +105,27 @@ Deno.serve(async (req) => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiKey },
       body: requestBody,
-      signal: AbortSignal.timeout(25000),
+      signal: AbortSignal.timeout(timeoutMs),
     })
 
-  // Gemini recomienda reintentar 429/5xx. La segunda opción usa Flash-Lite,
-  // que admite imágenes y salidas estructuradas y tiene cuota independiente.
-  const attempts = [preferredModel, preferredModel, 'gemini-3.5-flash-lite']
+  // Como máximo se hacen dos intentos cortos. Antes podían acumularse tres
+  // esperas de 25 segundos, que explican las validaciones cercanas al minuto.
+  const attempts = buildGeminiAttempts(preferredModel)
+  const validationStartedAt = Date.now()
   let geminiResponse: Response | null = null
+  let completedModel = ''
   let lastDetail = ''
   for (let attempt = 0; attempt < attempts.length; attempt += 1) {
     try {
       const current = await callGemini(attempts[attempt])
       if (current.ok) {
         geminiResponse = current
+        completedModel = attempts[attempt]
         break
       }
       lastDetail = (await current.text()).slice(0, 1000)
       console.error('Gemini validation request failed', attempts[attempt], current.status, lastDetail)
-      if (![429, 500, 502, 503, 504].includes(current.status)) {
+      if (!shouldRetryGeminiStatus(current.status)) {
         geminiResponse = current
         break
       }
@@ -108,7 +133,7 @@ Deno.serve(async (req) => {
       lastDetail = String(error).slice(0, 1000)
       console.error('Gemini validation transport failed', attempts[attempt], lastDetail)
     }
-    if (attempt < attempts.length - 1) await new Promise(resolve => setTimeout(resolve, 600 * (2 ** attempt)))
+    if (attempt < attempts.length - 1) await new Promise(resolve => setTimeout(resolve, 300))
   }
 
   if (!geminiResponse) {
@@ -151,6 +176,8 @@ Deno.serve(async (req) => {
   const confidence = Math.min(1, Math.max(0, toNumber(parsed.confidence) || 0))
   const odometerKm = toNumber(parsed.odometerKm)
   const message = String(parsed.message || '').slice(0, 240)
+  const processingMs = Date.now() - validationStartedAt
+  console.info('Gemini odometer validation completed', { model: completedModel, processingMs })
 
   if (!isOdometer) return response({
     available: true,
@@ -158,6 +185,7 @@ Deno.serve(async (req) => {
     readable: false,
     odometerKm: null,
     confidence,
+    processingMs,
     message: message || 'La imagen no parece mostrar el tablero de un vehículo. Toma nuevamente la foto del odómetro.',
   })
 
@@ -167,6 +195,7 @@ Deno.serve(async (req) => {
     readable: false,
     odometerKm: null,
     confidence,
+    processingMs,
     message: message || 'No se distinguen bien los números del odómetro. Enfoca el tablero y toma otra foto.',
   })
 
@@ -176,6 +205,7 @@ Deno.serve(async (req) => {
     readable: true,
     odometerKm,
     confidence,
+    processingMs,
     referenceMismatch: minimumKm > 0 && odometerKm < minimumKm,
     message: message || 'Tablero validado correctamente.',
   })
