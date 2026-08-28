@@ -10,9 +10,20 @@ test('la llegada solicita el GPS automáticamente al abrirse', () => {
   assert.match(arrivalSource, /useEffect\(\(\) => \{ gps\(\); \}, \[\]\);/);
 });
 
-test('la llegada reintenta el GPS al adjuntar la foto si aún no está listo', () => {
+test('adjuntar la foto no vuelve a ejecutar ni reemplaza el GPS de llegada', () => {
   const arrivalSource = mainSource.slice(mainSource.indexOf('function ArrivalSimple'));
-  assert.match(arrivalSource, /if \(!gpsReady\) gps\(\);/);
+  const photoHandler = arrivalSource.slice(arrivalSource.indexOf('const odometer'), arrivalSource.indexOf('const storeArrivalPhoto'));
+  assert.doesNotMatch(photoHandler, /gps\(\)/);
+});
+
+test('si existen coordenadas reales no rechaza solo por repetir el texto de la calle', () => {
+  const arrivalSource = mainSource.slice(mainSource.indexOf('function ArrivalSimple'));
+  assert.match(arrivalSource, /const samePlace = !Number\.isFinite\(distance\)/);
+});
+
+test('si la llegada realmente coincide con el origen muestra el aviso superior', () => {
+  const arrivalSource = mainSource.slice(mainSource.indexOf('function ArrivalSimple'));
+  assert.match(arrivalSource, /if \(samePlace \|\| \(Number\.isFinite\(distance\) && distance < 100\)\) \{[\s\S]*?setGpsStatus\(validationError\);/);
 });
 
 test('el campo de destino y su botón GPS no están ocultos en llegada', () => {

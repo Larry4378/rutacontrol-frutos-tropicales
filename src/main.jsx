@@ -1493,7 +1493,6 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
   const odometer = async file => {
     if (!file) return false;
     setSubmitError('');
-    if (!gpsReady) gps();
     setPhotoSelected(false);
     change('endPhoto', '');
     setStatus('Foto adjuntada. Puedes revisarla abajo mientras se guarda; escribe manualmente el kilometraje final.');
@@ -1508,9 +1507,13 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
     event.preventDefault();
     if (saving) return;
     setSubmitError('');
-    const samePlace = Boolean(trip?.origin && form.destination && normalizePlace(trip.origin) === normalizePlace(form.destination));
     const departurePoint = trip?.routePoints?.[0];
     const distance = departurePoint && form.arrivalPoint ? gpsDistanceMeters(departurePoint, form.arrivalPoint) : null;
+    // La dirección devuelta por el mapa puede ser idéntica para distintos puntos
+    // de una carretera extensa. Solo usamos el texto como respaldo cuando el
+    // recorrido antiguo no conserva coordenadas para calcular la distancia real.
+    const samePlace = !Number.isFinite(distance)
+      && Boolean(trip?.origin && form.destination && normalizePlace(trip.origin) === normalizePlace(form.destination));
     const validationError = arrivalSubmissionError({
       hasTrip: Boolean(trip),
       gpsReady,
