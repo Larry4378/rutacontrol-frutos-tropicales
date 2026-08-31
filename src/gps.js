@@ -1,6 +1,7 @@
 export const GPS_TRACKING_MAX_ACCURACY_METERS = 18;
 export const GPS_TRACKING_MIN_INTERVAL_MS = 1000;
 export const GPS_TRACKING_MAX_SPEED_MPS = 45;
+export const GPS_LIVE_STALE_AFTER_MS = 15_000;
 
 const finite = value => Number.isFinite(Number(value));
 const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
@@ -75,4 +76,27 @@ export const stabilizeGpsPoint = (previous, point) => {
     lng: Number(previous.lng) + (Number(point.lng) - Number(previous.lng)) * alpha,
     accuracy: Math.round(accuracy),
   };
+};
+
+export const gpsPointFromLiveRow = row => {
+  if (!row) return null;
+  const timestamp = Date.parse(row.captured_at || row.updated_at || '');
+  const point = {
+    lat: Number(row.latitude),
+    lng: Number(row.longitude),
+    accuracy: Math.round(Number(row.accuracy)),
+    speed: row.speed === null || row.speed === undefined ? -1 : Number(row.speed),
+    heading: row.heading === null || row.heading === undefined ? -1 : Number(row.heading),
+    timestamp,
+    at: row.captured_at || row.updated_at,
+    source: 'supabase-realtime',
+  };
+  return finite(point.lat) && finite(point.lng) && finite(point.accuracy) && Number.isFinite(timestamp)
+    ? point
+    : null;
+};
+
+export const isGpsPointFresh = (point, now = Date.now()) => {
+  const timestamp = Number(point?.timestamp || Date.parse(point?.at || ''));
+  return Number.isFinite(timestamp) && now - timestamp >= 0 && now - timestamp <= GPS_LIVE_STALE_AFTER_MS;
 };

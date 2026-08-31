@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {
   GPS_TRACKING_MAX_ACCURACY_METERS,
   gpsDistanceMeters,
+  gpsPointFromLiveRow,
+  isGpsPointFresh,
   shouldKeepGpsPoint,
   stabilizeGpsPoint,
 } from '../src/gps.js';
@@ -85,4 +87,26 @@ test('un salto falso intermedio no contamina las posiciones siguientes', () => {
   assert.equal(shouldKeepGpsPoint(stableFirst, falseJump), false);
   const validNext = { ...base, lat: base.lat + 0.00016, timestamp: 3_200, speed: 8 };
   assert.equal(shouldKeepGpsPoint(stableFirst, validNext), true);
+});
+
+test('convierte la fila de ubicación en vivo en un punto GPS utilizable', () => {
+  const capturedAt = new Date().toISOString();
+  const point = gpsPointFromLiveRow({
+    latitude: -11.0329,
+    longitude: -77.6049,
+    accuracy: 4.4,
+    speed: 8,
+    heading: 185,
+    captured_at: capturedAt,
+  });
+  assert.equal(point.lat, -11.0329);
+  assert.equal(point.lng, -77.6049);
+  assert.equal(point.accuracy, 4);
+  assert.equal(point.at, capturedAt);
+});
+
+test('distingue una ubicación en vivo de una posición atrasada', () => {
+  const now = Date.now();
+  assert.equal(isGpsPointFresh({ timestamp: now - 3_000 }, now), true);
+  assert.equal(isGpsPointFresh({ timestamp: now - 30_000 }, now), false);
 });

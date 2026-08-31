@@ -2,8 +2,9 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { createWorker } from 'tesseract.js';
 import L from 'leaflet';
-import { supabase } from './supabase';
-import { GPS_TRACKING_MAX_ACCURACY_METERS, gpsDistanceMeters, shouldKeepGpsPoint, stabilizeGpsPoint } from './gps.js';
+import { supabase, SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from './supabase';
+import { GPS_TRACKING_MAX_ACCURACY_METERS, gpsDistanceMeters, gpsPointFromLiveRow, isGpsPointFresh, shouldKeepGpsPoint, stabilizeGpsPoint } from './gps.js';
+import { addNativeLocationListener, getNativeLocationStatus, isNativeAndroidLocation, startNativeLocationTracking, stopNativeLocationTracking } from './native-location.js';
 import { arrivalSubmissionError, isPositiveKilometer, normalizeKilometerInput } from './odometer-form.js';
 import 'leaflet/dist/leaflet.css';
 import '../styles.css';
@@ -383,26 +384,6 @@ function App() {
   useEffect(() => {
     if (!session || !profileReady || !profile) return;
     let active = true;
-    const loadMaintenance = async () => {
-      const { data: rows, error: loadError } = await supabase
-        .from('maintenance_records')
-        .select('id,vehicle_id,service_type,service_date,service_km,next_date,next_km,notes,created_by,created_at')
-        .order('service_date', { ascending: false });
-      if (!active) return;
-      if (loadError) return setError(`No se pudieron cargar los mantenimientos: ${loadError.message}`);
-      setData(previous => ({ ...previous, maintenance: (rows || []).map(row => ({
-        id: row.id, vehicleId: row.vehicle_id, type: row.service_type, date: row.service_date,
-        serviceKm: row.service_km, nextDate: row.next_date, nextKm: row.next_km,
-        notes: row.notes, createdBy: row.created_by, createdAt: row.created_at, _saved: true,
-      })) }));
-    };
-    loadMaintenance();
-    window.addEventListener('focus', loadMaintenance);
-    return () => { active = false; window.removeEventListener('focus', loadMaintenance); };
-  }, [session, profileReady, profile?.id]);
-  useEffect(() => {
-    if (!session || !profileReady || !profile) return;
-    let active = true;
     const loadFuel = async () => {
       let request = supabase
         .from('fuel_records')
@@ -630,11 +611,15 @@ function App() {
     setData(previous => ({ ...previous, [collection]: previous[collection].filter(x => x.id !== recordId) }));
   };
   const tripsKm = data.trips.reduce((total, trip) => total + (trip.endKm ? Math.max(0, Number(trip.endKm) - Number(trip.startKm)) : 0), 0);
-  const adminNav=[['dashboard','▦','Inicio'],['trips','↗','Recorridos'],['maintenance','♧','Mantenimiento'],['fuel','◉','Combustible'],['vehicles','▣','Vehículos'],['users','◉','Usuarios'],['reports','⇩','Reportes']];
-  const driverPermissions={departure:false,arrival:false,trips:false,fuel:false,maintenance:false,...(profile?.permissions||{})};
-  const driverNav=[['dashboard','▦','Inicio'],...(driverPermissions.trips?[['trips','↗','Mis recorridos']]:[]),...(driverPermissions.maintenance?[['maintenance','♧','Mantenimiento']]:[]),...(driverPermissions.fuel?[['fuel','◉','Combustible']]:[])];
+  const adminNav=[['dashboard','▦','Inicio'],['trips','↗','Recorridos'],['fuel','◉','Combustible'],['vehicles','▣','Vehículos'],['users','◉','Usuarios'],['reports','⇩','Reportes']];
+  const driverPermissions={departure:false,arrival:false,trips:false,fuel:false,...(profile?.permissions||{})};
+  const driverNav=[['dashboard','▦','Inicio'],...(driverPermissions.trips?[['trips','↗','Mis recorridos']]:[]),...(driverPermissions.fuel?[['fuel','◉','Combustible']]:[])];
   const nav = profile?.role === 'admin' && !driverPreview ? adminNav : driverNav;
-  const title = { dashboard:'Inicio',trips:'Historial de recorridos',maintenance:'Mantenimiento y afinamiento',fuel:'Control de combustible',expenses:'Gastos y reparaciones',vehicles:'Vehículos',users:'Usuarios y accesos',reports:'Reportes' }[view];
+  const title = { dashboard:'Inicio',trips:'Historial de recorridos',fuel:'Control de combustible',expenses:'Gastos y reparaciones',vehicles:'Vehículos',users:'Usuarios y accesos',reports:'Reportes' }[view];
+  const logout = async () => {
+    if (isNativeAndroidLocation()) await stopNativeLocationTracking().catch(() => {});
+    await supabase.auth.signOut();
+  };
 
   if (showSplash) return <SplashScreen/>;
   if (!authReady) return <section className="login-screen"><div className="login-card"><p>Conectando con FTP - ODOMETRO…</p></div></section>;
@@ -642,19 +627,15 @@ function App() {
   return <>
     <DriverVehicleAssignment profile={profile} driverPreview={driverPreview} modal={modal}/>
     <KilometerInputGuard />
-    <MaintenanceFormHelper active={modal?.type === 'maintenance'} />
-    <aside className="sidebar"><div className="company-name">FRUTOS TROPICALES<br/><span>EXPORT. PERÚ</span></div><div className="brand"><span className="brand-mark">F</span><span>FTP - ODOMETRO</span></div><nav>{nav.map(([key, icon, label]) => <button key={key} className={`nav-link ${view === key ? 'active' : ''}`} onClick={() => { setView(key); setModal(null); }}>{icon}<span>{label}</span></button>)}</nav><div className="sidebar-note">{session.user.email}<br/><small>{driverPreview?'Vista de chofer · Administración conservada':'Sesión segura · Administrador'}</small>{profile?.role==='admin'&&<button className="sidebar-preview" onClick={()=>{setDriverPreview(value=>!value);setView('dashboard');setModal(null);}}>{driverPreview?'↩ Volver a administrador':'◉ Vista de chofer'}</button>}<button className="sidebar-logout" onClick={() => supabase.auth.signOut()}>↪ Salir</button></div></aside>
-    <main className={modal ? 'modal-open' : ''}>{error && <p className="sync-error">{error}</p>}<header><div><p className="eyebrow">FRUTOS TROPICALES EXPORT. PERÚ · CONTROL VEHICULAR</p><h1>{title}</h1></div><button className="mobile-logout" onClick={() => supabase.auth.signOut()}>↪ Cerrar sesión</button></header>
-      {view === 'dashboard' && <MaintenanceAlerts data={data} profile={profile} driverPreview={driverPreview} onGo={setView} />}
+    <aside className="sidebar"><div className="company-name">FRUTOS TROPICALES<br/><span>EXPORT. PERÚ</span></div><div className="brand"><span className="brand-mark">F</span><span>FTP - ODOMETRO</span></div><nav>{nav.map(([key, icon, label]) => <button key={key} className={`nav-link ${view === key ? 'active' : ''}`} onClick={() => { setView(key); setModal(null); }}>{icon}<span>{label}</span></button>)}</nav><div className="sidebar-note">{session.user.email}<br/><small>{driverPreview?'Vista de chofer · Administración conservada':'Sesión segura · Administrador'}</small>{profile?.role==='admin'&&<button className="sidebar-preview" onClick={()=>{setDriverPreview(value=>!value);setView('dashboard');setModal(null);}}>{driverPreview?'↩ Volver a administrador':'◉ Vista de chofer'}</button>}<button className="sidebar-logout" onClick={logout}>↪ Salir</button></div></aside>
+    <main className={modal ? 'modal-open' : ''}>{error && <p className="sync-error">{error}</p>}<header><div><p className="eyebrow">FRUTOS TROPICALES EXPORT. PERÚ · CONTROL VEHICULAR</p><h1>{title}</h1></div><button className="mobile-logout" onClick={logout}>↪ Cerrar sesión</button></header>
       {view === 'dashboard' && <Dashboard data={data} profile={profile} driverPreview={driverPreview} km={tripsKm} permissions={profile?.role === 'driver' && !driverPreview ? driverPermissions : {departure:true,arrival:true}} driverName={profile?.role === 'driver' ? profile.full_name : ''} onGo={setView} onDeparture={() => setModal({type:'quickDeparture'})} onReturn={() => setModal({type:'quickReturn'})} onTripUpdate={record => update('trips',record)} tripForm={modal?.type === 'quickDeparture' ? <DepartureGpsRequired data={data} driverName={profile?.role === 'driver' ? profile.full_name : ''} driverId={profile?.role === 'driver' && !driverPreview ? profile.id : ''} assignedVehicleId={profile?.role === 'driver' && !driverPreview ? profile.permissions?.assignedVehicleId : ''} assignedVehicleLabel={profile?.role === 'driver' && !driverPreview ? profile.permissions?.assignedVehicleLabel : ''} onClose={() => setModal(null)} onSave={async record => { const saved={...record,...(window.departureEvidence||{}),departureDate:today(),departureTime:now()}; const registered=await update('trips',saved); if(registered){setModal(null);setSuccessMessage('Salida registrada correctamente.');} return registered; }} /> : modal?.type === 'quickReturn' ? <ArrivalSimple data={data} driverName={profile?.role === 'driver' && !driverPreview ? profile.full_name : ''} driverId={profile?.role === 'driver' && !driverPreview ? profile.id : ''} onClose={() => setModal(null)} onSave={async record => { const registered=await update('trips',{...record,returnDate:today(),returnTime:now()}); if(registered){setModal(null);setSuccessMessage('Llegada registrada correctamente.');} return registered; }} /> : null} />}
       {view === 'trips' && <List title="Historial de recorridos" text="Consulta, filtra y edita las salidas y llegadas registradas." hideAdd><Trips data={data} drivers={drivers} profile={profile} onEdit={record => setModal({type:'trip',record})} onDelete={record => remove('trips',record.id)} /></List>}
-      {view === 'maintenance' && <List title="Mantenimiento" text="Afinamiento, aceite, frenos, neumáticos y revisión técnica." onAdd={() => setModal({type:'maintenance'})}><Maintenance data={data} onEdit={record => setModal({type:'maintenance',record})} onDelete={record => remove('maintenance',record.id)} /></List>}
       {view === 'fuel' && <List title="Control de combustible" text={profile?.role === 'admin' && !driverPreview ? 'Revisa los comprobantes enviados por toda la flota.' : 'Envía tu comprobante y consulta los que ya registraste.'} onAdd={() => setModal({type:'fuel'})}><Fuel data={data} drivers={drivers} profile={profile} isAdmin={profile?.role === 'admin' && !driverPreview} onEdit={record => setModal({type:'fuel',record})} onDelete={record => remove('fuels',record.id)} /></List>}
       {view === 'vehicles' && <List title="Vehículos" text="Administra placa, odómetro y estado." onAdd={() => setModal({type:'vehicle'})}><Vehicles data={data} onEdit={record => setModal({type:'vehicle',record})} onDelete={record => remove('vehicles',record)} /></List>}
       {view === 'reports' && <Reports data={data} />}
       {view === 'users' && <UsersPage drivers={drivers} vehicles={data.vehicles} onChanged={loadUsers}/>}
     </main>
-    {modal?.type === 'maintenance' && <MaintenanceModal key={`maintenance-${modal.record?.id||'new'}-${profile?.role === 'driver' && !driverPreview ? driverPermissions.assignedVehicleId||'pending' : 'admin'}`} record={modal.record} data={data} assignedVehicleId={profile?.role === 'driver' && !driverPreview ? driverPermissions.assignedVehicleId : ''} onClose={() => setModal(null)} onSave={async record => { if (await update('maintenance',record)) setModal(null); }} />}
     {modal?.type === 'vehicle' && <VehicleModal record={modal.record} onClose={() => setModal(null)} onSave={async record => { if (await update('vehicles', record)) setModal(null); }} />}
     {modal?.type === 'fuel' && <FuelModalReceipt record={modal.record} data={data} assignedVehicleId={profile?.role === 'driver' && !driverPreview ? profile.permissions?.assignedVehicleId : ''} isAdmin={profile?.role === 'admin' && !driverPreview} onClose={() => setModal(null)} onSave={async record => { const saved = await update('fuels', record); if (saved) { setModal(null); setSuccessMessage('Comprobante enviado correctamente.'); } return saved; }} />}
     {modal && !['quickDeparture','quickReturn','maintenance','vehicle','fuel'].includes(modal.type) && <RecordModal type={modal.type} record={modal.record} data={data} onClose={() => setModal(null)} onSave={(collection, record) => { update(collection,record); setModal(null); }} />}
@@ -716,130 +697,346 @@ function MaintenanceAlerts({data, profile, driverPreview, onGo}) {
   return <section className="panel maintenance-alerts"><div className="section-head"><div><p className="eyebrow">MANTENIMIENTO</p><h2>Alertas de mantenimiento</h2><p>Se activan únicamente por el próximo kilometraje programado.</p></div><button className="text-button" onClick={() => onGo('maintenance')}>Ver mantenimiento</button></div><div className="maintenance-alert-list">{alerts.map(alert => { const detail=alert.kmRemaining <= 0 ? `Kilometraje alcanzado: ${kmText(alert.kmNow)} km de ${kmText(alert.maintenance.nextKm)} km` : `Faltan ${kmText(alert.kmRemaining)} km: ${kmText(alert.kmNow)} de ${kmText(alert.maintenance.nextKm)} km`; return <article key={alert.vehicle.id} className={`maintenance-alert ${alert.due ? 'due' : 'soon'}`}><span className="maintenance-alert-icon">{alert.due ? '!' : '◷'}</span><div><b>{alert.vehicle.plate} · {alert.vehicle.brand} {alert.vehicle.model}</b><p>{alert.due ? 'Mantenimiento pendiente.' : 'Mantenimiento próximo.'} {detail}</p></div></article>; })}</div></section>;
 }
 function MangoQuickActions({permissions,onDeparture,onReturn}) { return <section className="mango-actions"><div><p className="eyebrow">ACCESO RÁPIDO</p><h2>¿El vehículo sale o llega?</h2><p>Registra el movimiento con un toque.</p></div><div className="mango-buttons">{permissions.departure&&<button className="mango-button departure" onClick={onDeparture}><i className="mango-fruit"/><span>Registrar<br/><b>Salida</b></span></button>}{permissions.arrival&&<button className="mango-button arrival" onClick={onReturn}><i className="mango-fruit"/><span>Registrar<br/><b>Llegada</b></span></button>}</div></section>; }
-function RouteMap({data,profile,driverPreview,onUpdate}) {
-  const active=data.trips.find(isTripOpen);
+function RouteMap({ data, profile, driverPreview, onUpdate }) {
+  const active = data.trips.find(isTripOpen);
   const isTripDriver = Boolean(profile?.role === 'driver' && !driverPreview && String(active?.driverProfileId || active?.driver || '') === String(profile?.id || ''));
-  const mapNode=useRef(null); const map=useRef(null); const marker=useRef(null); const watcher=useRef(null); const record=useRef(active); const manualMapView=useRef(false); const automaticMapMove=useRef(false);
-  const markerAnimation=useRef(null); const saveInFlight=useRef(false); const pendingRouteSave=useRef(null);
-  const [tracking,setTracking]=useState(false);
-  const [resumeCycle,setResumeCycle]=useState(0);
-  const [livePoint,setLivePoint]=useState(null);
-  const [message,setMessage]=useState(active?'GPS activándose para seguir el vehículo.':'No hay un vehículo en ruta. Registra una salida primero.');
-  useEffect(()=>{
-    if(!active){record.current=null;return;}
-    const current=record.current;
-    // Una respuesta más antigua del sondeo nunca debe reemplazar los puntos que
-    // el teléfono ya tiene pendientes de guardar.
-    if(!current||current.id!==active.id||(active.routePoints?.length||0)>=(current.routePoints?.length||0)) record.current=active;
-  },[active]);
-  useEffect(()=>{manualMapView.current=false;setLivePoint(null);pendingRouteSave.current=null;},[active?.id]);
-  useEffect(()=>{
-    const restartGpsWhenReturning=()=>{
-      if(document.visibilityState !== 'visible') return;
-      setResumeCycle(previous=>previous+1);
-    };
-    document.addEventListener('visibilitychange',restartGpsWhenReturning);
-    window.addEventListener('focus',restartGpsWhenReturning);
-    return()=>{
-      document.removeEventListener('visibilitychange',restartGpsWhenReturning);
-      window.removeEventListener('focus',restartGpsWhenReturning);
-    };
-  },[]);
-  useEffect(()=>{if(!mapNode.current||map.current)return;map.current=L.map(mapNode.current,{zoomControl:false,attributionControl:false}).setView([-5.1945,-80.6328],11);const markManualView=()=>{if(!automaticMapMove.current)manualMapView.current=true;};map.current.on('dragstart',markManualView);map.current.on('zoomstart',markManualView);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap contributors',maxNativeZoom:19,maxZoom:20}).addTo(map.current);L.control.zoom({position:'bottomright'}).addTo(map.current);L.control.attribution({position:'bottomleft',prefix:'© OpenStreetMap'}).addTo(map.current);return()=>{map.current?.off('dragstart',markManualView);map.current?.off('zoomstart',markManualView);map.current?.remove();map.current=null;};},[]);
-  useEffect(()=>{
-    const storedLast=(active?.routePoints||[]).at(-1);
-    const latest=livePoint||storedLast;
-    if(!map.current)return;
-    if(!latest){
-      if(marker.current){marker.current.remove();marker.current=null;}
+  const nativeGps = isNativeAndroidLocation();
+  const mapNode = useRef(null);
+  const map = useRef(null);
+  const marker = useRef(null);
+  const watcher = useRef(null);
+  const nativeListener = useRef(null);
+  const record = useRef(active);
+  const livePointRef = useRef(null);
+  const manualMapView = useRef(false);
+  const automaticMapMove = useRef(false);
+  const markerAnimation = useRef(null);
+  const saveInFlight = useRef(false);
+  const pendingRouteSave = useRef(null);
+  const liveSaveInFlight = useRef(false);
+  const pendingLiveSave = useRef(null);
+  const lastRoutePersistAt = useRef(0);
+  const [tracking, setTracking] = useState(false);
+  const [resumeCycle, setResumeCycle] = useState(0);
+  const [livePoint, setLivePoint] = useState(null);
+  const [message, setMessage] = useState(active ? 'GPS activándose para seguir el vehículo.' : 'No hay un vehículo en ruta. Registra una salida primero.');
+
+  const showLivePoint = point => {
+    if (!point) return;
+    const current = livePointRef.current || record.current?.routePoints?.at(-1);
+    const currentTimestamp = Number(current?.timestamp || Date.parse(current?.at || ''));
+    const nextTimestamp = Number(point.timestamp || Date.parse(point.at || ''));
+    if (Number.isFinite(currentTimestamp) && Number.isFinite(nextTimestamp) && nextTimestamp < currentTimestamp) return;
+    livePointRef.current = point;
+    setLivePoint(point);
+  };
+
+  useEffect(() => {
+    if (!active) {
+      record.current = null;
       return;
     }
-    const last=[latest.lat,latest.lng];
-    const vehicle=data.vehicles.find(item=>item.id===active.vehicleId);
-    const symbol=String(vehicle?.vehicle_type||'').toLowerCase().includes('moto')?'🏍️':'🚗';
-    const icon=L.divIcon({className:'moving-vehicle-icon',html:`<span class="vehicle-map-pin" title="Vehículo en movimiento"><i>${symbol}</i></span>`,iconSize:[48,48],iconAnchor:[24,24]});
-    if(!marker.current) marker.current=L.marker(last,{icon}).addTo(map.current);
+    const current = record.current;
+    // Una respuesta más antigua nunca reemplaza puntos que el teléfono todavía
+    // tiene pendientes de guardar.
+    if (!current || current.id !== active.id || (active.routePoints?.length || 0) >= (current.routePoints?.length || 0)) record.current = active;
+  }, [active]);
+
+  useEffect(() => {
+    manualMapView.current = false;
+    livePointRef.current = null;
+    setLivePoint(null);
+    pendingRouteSave.current = null;
+    pendingLiveSave.current = null;
+    lastRoutePersistAt.current = 0;
+  }, [active?.id]);
+
+  useEffect(() => {
+    const restartGpsWhenReturning = () => {
+      if (document.visibilityState !== 'visible') return;
+      setResumeCycle(previous => previous + 1);
+    };
+    document.addEventListener('visibilitychange', restartGpsWhenReturning);
+    window.addEventListener('focus', restartGpsWhenReturning);
+    return () => {
+      document.removeEventListener('visibilitychange', restartGpsWhenReturning);
+      window.removeEventListener('focus', restartGpsWhenReturning);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!mapNode.current || map.current) return;
+    map.current = L.map(mapNode.current, { zoomControl: false, attributionControl: false }).setView([-5.1945, -80.6328], 11);
+    const markManualView = () => { if (!automaticMapMove.current) manualMapView.current = true; };
+    map.current.on('dragstart', markManualView);
+    map.current.on('zoomstart', markManualView);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap contributors', maxNativeZoom: 19, maxZoom: 20 }).addTo(map.current);
+    L.control.zoom({ position: 'bottomright' }).addTo(map.current);
+    L.control.attribution({ position: 'bottomleft', prefix: '© OpenStreetMap' }).addTo(map.current);
+    return () => {
+      map.current?.off('dragstart', markManualView);
+      map.current?.off('zoomstart', markManualView);
+      map.current?.remove();
+      map.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const storedLast = (active?.routePoints || []).at(-1);
+    const latest = livePoint || storedLast;
+    if (!map.current) return;
+    if (!latest) {
+      if (marker.current) { marker.current.remove(); marker.current = null; }
+      return;
+    }
+    const last = [latest.lat, latest.lng];
+    const vehicle = data.vehicles.find(item => item.id === active.vehicleId);
+    const symbol = String(vehicle?.vehicle_type || '').toLowerCase().includes('moto') ? '🏍️' : '🚗';
+    const icon = L.divIcon({ className: 'moving-vehicle-icon', html: `<span class="vehicle-map-pin" title="Vehículo en movimiento"><i>${symbol}</i></span>`, iconSize: [48, 48], iconAnchor: [24, 24] });
+    if (!marker.current) marker.current = L.marker(last, { icon }).addTo(map.current);
     else {
       marker.current.setIcon(icon);
-      if(markerAnimation.current) cancelAnimationFrame(markerAnimation.current);
-      const from=marker.current.getLatLng();
-      const target={lat:Number(latest.lat),lng:Number(latest.lng)};
-      const distance=gpsDistanceMeters(from,target);
-      if(!Number.isFinite(distance)||distance>180){
-        marker.current.setLatLng(target);
-      } else {
-        const started=performance.now();
-        const duration=700;
-        const animate=nowTime=>{
-          const progress=Math.min(1,(nowTime-started)/duration);
-          // Suavizado visual sin extrapolar: el ícono siempre termina en la
-          // última coordenada real y nunca se dibuja por delante de ella.
-          const eased=1-Math.pow(1-progress,3);
-          marker.current?.setLatLng({lat:from.lat+(target.lat-from.lat)*eased,lng:from.lng+(target.lng-from.lng)*eased});
-          if(progress<1) markerAnimation.current=requestAnimationFrame(animate);
+      if (markerAnimation.current) cancelAnimationFrame(markerAnimation.current);
+      const from = marker.current.getLatLng();
+      const target = { lat: Number(latest.lat), lng: Number(latest.lng) };
+      const distance = gpsDistanceMeters(from, target);
+      if (!Number.isFinite(distance) || distance > 180) marker.current.setLatLng(target);
+      else {
+        const started = performance.now();
+        const duration = 850;
+        const animate = nowTime => {
+          const progress = Math.min(1, (nowTime - started) / duration);
+          // Solo interpola entre posiciones reales; nunca predice por delante.
+          const eased = 1 - Math.pow(1 - progress, 3);
+          marker.current?.setLatLng({ lat: from.lat + (target.lat - from.lat) * eased, lng: from.lng + (target.lng - from.lng) * eased });
+          if (progress < 1) markerAnimation.current = requestAnimationFrame(animate);
         };
-        markerAnimation.current=requestAnimationFrame(animate);
+        markerAnimation.current = requestAnimationFrame(animate);
       }
     }
-    if(!manualMapView.current){
-      automaticMapMove.current=true;
-      // Mostrar calles locales y el vehículo actual, sin dibujar el recorrido histórico.
-      map.current.setView(last,17,{animate:true});
-      window.setTimeout(()=>{automaticMapMove.current=false;},750);
+    if (!manualMapView.current) {
+      automaticMapMove.current = true;
+      map.current.setView(last, 17, { animate: true });
+      window.setTimeout(() => { automaticMapMove.current = false; }, 900);
     }
-    setTimeout(()=>map.current?.invalidateSize(),80);
-  },[active?.routePoints,livePoint,data.vehicles]);
+    setTimeout(() => map.current?.invalidateSize(), 80);
+  }, [active?.routePoints, livePoint, data.vehicles]);
+
   const queueRouteSave = next => {
-    pendingRouteSave.current=next;
-    if(saveInFlight.current)return;
-    const flush=async()=>{
-      const pending=pendingRouteSave.current;
-      if(!pending)return;
-      pendingRouteSave.current=null;
-      saveInFlight.current=true;
-      try{await onUpdate({...pending,_routeTracking:true});}
-      finally{saveInFlight.current=false;if(pendingRouteSave.current)flush();}
+    pendingRouteSave.current = next;
+    if (saveInFlight.current) return;
+    const flush = async () => {
+      const pending = pendingRouteSave.current;
+      if (!pending) return;
+      pendingRouteSave.current = null;
+      saveInFlight.current = true;
+      try { await onUpdate({ ...pending, _routeTracking: true }); }
+      finally {
+        saveInFlight.current = false;
+        if (pendingRouteSave.current) flush();
+      }
     };
     flush();
   };
-  useEffect(()=>{
-    if(watcher.current){navigator.geolocation.clearWatch(watcher.current);watcher.current=null;}
-    if(!active?.id){setTracking(false);setMessage('No hay un vehículo en ruta. Registra una salida primero.');return;}
-    if(!isTripDriver){setTracking(false);setMessage('Ubicación recibida desde el celular del chofer. Se actualiza automáticamente.');return;}
-    if(!navigator.geolocation){setTracking(false);setMessage('Este navegador no permite GPS.');return;}
-    const tripId=active.id;
-    setTracking(true);setMessage('GPS activo: el ícono se moverá en el mapa mientras esta aplicación permanezca abierta.');
-    watcher.current=navigator.geolocation.watchPosition(position=>{
-      const previous=record.current;
-      if(!previous||previous.id!==tripId||!isTripOpen(previous))return;
-      const timestamp=Number(position.timestamp || Date.now());
-      const rawPoint={lat:position.coords.latitude,lng:position.coords.longitude,at:new Date(timestamp).toISOString(),timestamp,accuracy:Math.round(position.coords.accuracy),speed:position.coords.speed,heading:position.coords.heading};
-      const lastPoint=previous.routePoints?.at(-1);
+
+  const queueLiveSave = point => {
+    if (!active?.id) return;
+    pendingLiveSave.current = point;
+    if (liveSaveInFlight.current) return;
+    const flush = async () => {
+      const pending = pendingLiveSave.current;
+      if (!pending) return;
+      pendingLiveSave.current = null;
+      liveSaveInFlight.current = true;
+      try {
+        const { error: liveError } = await supabase.from('trip_live_locations').upsert({
+          trip_id: active.id,
+          latitude: pending.lat,
+          longitude: pending.lng,
+          accuracy: pending.accuracy,
+          speed: Number(pending.speed) >= 0 ? Number(pending.speed) : null,
+          heading: Number(pending.heading) >= 0 ? Number(pending.heading) : null,
+          captured_at: pending.at,
+          updated_at: pending.at,
+        }, { onConflict: 'trip_id' });
+        if (liveError) console.warn('No se pudo publicar la ubicación en vivo:', liveError.message);
+      } finally {
+        liveSaveInFlight.current = false;
+        if (pendingLiveSave.current) flush();
+      }
+    };
+    flush();
+  };
+
+  // El administrador recibe una fila pequeña por WebSocket. Se conserva una
+  // consulta de respaldo para recuperarse de redes móviles intermitentes.
+  useEffect(() => {
+    if (!active?.id || (isTripDriver && nativeGps)) return;
+    let mounted = true;
+    const acceptRow = row => {
+      const point = gpsPointFromLiveRow(row);
+      if (!point || !mounted) return;
+      showLivePoint(point);
+      setMessage(isGpsPointFresh(point)
+        ? `Ubicación recibida en tiempo real con precisión de ${point.accuracy} m.`
+        : 'La última ubicación está retrasada. Esperando una señal nueva del celular.');
+    };
+    const loadLatest = async () => {
+      const { data: row, error: liveError } = await supabase
+        .from('trip_live_locations')
+        .select('trip_id,latitude,longitude,accuracy,speed,heading,captured_at,updated_at')
+        .eq('trip_id', active.id)
+        .maybeSingle();
+      if (!liveError && row) acceptRow(row);
+    };
+    loadLatest();
+    const channel = supabase
+      .channel(`trip-live-${active.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'trip_live_locations', filter: `trip_id=eq.${active.id}` }, payload => acceptRow(payload.new))
+      .subscribe();
+    const fallback = window.setInterval(loadLatest, 5000);
+    return () => {
+      mounted = false;
+      window.clearInterval(fallback);
+      supabase.removeChannel(channel);
+    };
+  }, [active?.id, isTripDriver, nativeGps]);
+
+  useEffect(() => {
+    if (!active?.id || isTripDriver) return;
+    const timer = window.setInterval(() => {
+      const point = livePointRef.current;
+      if (!point) return;
+      const seconds = Math.max(0, Math.round((Date.now() - Number(point.timestamp)) / 1000));
+      setMessage(seconds <= 15
+        ? `Ubicación recibida hace ${seconds} s · precisión ${point.accuracy} m.`
+        : `Sin actualización desde hace ${seconds} s. Revisa la señal del celular del chofer.`);
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [active?.id, isTripDriver]);
+
+  useEffect(() => {
+    if (watcher.current) { navigator.geolocation.clearWatch(watcher.current); watcher.current = null; }
+    let disposed = false;
+    const tripId = active?.id;
+
+    if (!tripId) {
+      setTracking(false);
+      setMessage('No hay un vehículo en ruta. Registra una salida primero.');
+      if (nativeGps) stopNativeLocationTracking().catch(() => {});
+      return;
+    }
+    if (!isTripDriver) {
+      setTracking(false);
+      setMessage('Ubicación recibida desde el celular del chofer. Se actualiza automáticamente.');
+      return;
+    }
+
+    const consumePoint = raw => {
+      const previous = record.current;
+      if (!previous || previous.id !== tripId || !isTripOpen(previous)) return;
+      if (raw?.tripId && String(raw.tripId) !== String(tripId)) return;
+      const timestamp = Number(raw.timestamp || Date.parse(raw.at || '') || Date.now());
+      const rawPoint = {
+        lat: Number(raw.lat),
+        lng: Number(raw.lng),
+        at: raw.at || new Date(timestamp).toISOString(),
+        timestamp,
+        accuracy: Math.round(Number(raw.accuracy)),
+        speed: raw.speed,
+        heading: raw.heading,
+        source: raw.source || (nativeGps ? 'android-native' : 'browser'),
+      };
+      const lastPoint = previous.routePoints?.at(-1);
       if (rawPoint.accuracy > GPS_TRACKING_MAX_ACCURACY_METERS) {
-        setMessage(`Esperando una señal GPS más precisa (${rawPoint.accuracy} m). El vehículo se actualizará al mejorar la ubicación.`);
+        setMessage(`Esperando una señal GPS más precisa (${rawPoint.accuracy} m).`);
         return;
       }
-      if(!shouldKeepGpsPoint(lastPoint,rawPoint)) return;
-      const point=stabilizeGpsPoint(lastPoint,rawPoint);
-      const next={...previous,routePoints:[...(previous.routePoints||[]),point]};
-      record.current=next;
-      // El marcador se actualiza de inmediato; el guardado en la nube se hace
-      // en paralelo y de forma ordenada para no frenar la vista del conductor.
-      setLivePoint(point);
-      setMessage(`Ubicación actualizada con precisión de ${point.accuracy} m.`);
-      queueRouteSave(next);
-    },()=>{setTracking(false);setMessage('No se pudo actualizar el GPS. Activa la ubicación precisa y mantén abierta la aplicación.');},{enableHighAccuracy:true,maximumAge:0,timeout:15000});
-    return()=>{if(watcher.current){navigator.geolocation.clearWatch(watcher.current);watcher.current=null;}if(markerAnimation.current){cancelAnimationFrame(markerAnimation.current);markerAnimation.current=null;}};
-  },[active?.id,isTripDriver,resumeCycle]);
+      if (!shouldKeepGpsPoint(lastPoint, rawPoint)) return;
+      const point = stabilizeGpsPoint(lastPoint, rawPoint);
+      const next = { ...previous, routePoints: [...(previous.routePoints || []), point] };
+      record.current = next;
+      showLivePoint(point);
+      setTracking(true);
+      setMessage(nativeGps
+        ? `GPS Android activo · precisión ${point.accuracy} m · funciona con la pantalla apagada.`
+        : `Ubicación actualizada con precisión de ${point.accuracy} m.`);
+      if (!nativeGps) queueLiveSave(point);
+      if (timestamp - lastRoutePersistAt.current >= 8000) {
+        lastRoutePersistAt.current = timestamp;
+        queueRouteSave(next);
+      }
+    };
+
+    if (nativeGps) {
+      setTracking(true);
+      setMessage('Iniciando GPS Android de alta precisión…');
+      (async () => {
+        try {
+          nativeListener.current = await addNativeLocationListener(consumePoint);
+          const status = await getNativeLocationStatus();
+          if (status?.lastPoint) consumePoint(status.lastPoint);
+          const { data: { session } } = await supabase.auth.getSession();
+          if (!session) throw new Error('La sesión del conductor no está disponible.');
+          await startNativeLocationTracking({
+            tripId,
+            supabaseUrl: SUPABASE_URL,
+            publishableKey: SUPABASE_PUBLISHABLE_KEY,
+            accessToken: session.access_token,
+            refreshToken: session.refresh_token,
+          });
+          if (!disposed) setMessage('GPS Android activo. La ubicación continuará con la pantalla apagada.');
+        } catch (nativeError) {
+          if (!disposed) {
+            setTracking(false);
+            setMessage(nativeError?.message || 'No se pudo iniciar el GPS Android. Revisa el permiso de ubicación precisa.');
+          }
+        }
+      })();
+    } else if (!navigator.geolocation) {
+      setTracking(false);
+      setMessage('Este navegador no permite GPS.');
+    } else {
+      setTracking(true);
+      setMessage('GPS web activo. Mantén esta página abierta para enviar la ubicación.');
+      watcher.current = navigator.geolocation.watchPosition(position => consumePoint({
+        lat: position.coords.latitude,
+        lng: position.coords.longitude,
+        accuracy: position.coords.accuracy,
+        speed: position.coords.speed,
+        heading: position.coords.heading,
+        timestamp: Number(position.timestamp || Date.now()),
+        at: new Date(Number(position.timestamp || Date.now())).toISOString(),
+        source: 'browser',
+      }), () => {
+        setTracking(false);
+        setMessage('No se pudo actualizar el GPS. Activa la ubicación precisa y mantén abierta la aplicación.');
+      }, { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
+    }
+
+    return () => {
+      disposed = true;
+      if (watcher.current) { navigator.geolocation.clearWatch(watcher.current); watcher.current = null; }
+      if (nativeListener.current) {
+        nativeListener.current.remove();
+        nativeListener.current = null;
+      }
+      if (markerAnimation.current) { cancelAnimationFrame(markerAnimation.current); markerAnimation.current = null; }
+      // El servicio Android no se detiene al cambiar de sección. Solo se
+      // detiene al confirmar la llegada, cerrar sesión o quedarse sin viaje.
+    };
+  }, [active?.id, isTripDriver, nativeGps, resumeCycle]);
+
   const focusVehicle = () => {
-    const last = record.current?.routePoints?.at(-1);
+    const last = livePointRef.current || record.current?.routePoints?.at(-1);
     if (!last || !map.current) return;
-    manualMapView.current=false;
-    automaticMapMove.current=true;
-    map.current.flyTo([last.lat,last.lng], Math.max(map.current.getZoom(), 17), { animate:true, duration:.6 });
-    window.setTimeout(()=>{automaticMapMove.current=false;},750);
+    manualMapView.current = false;
+    automaticMapMove.current = true;
+    map.current.flyTo([last.lat, last.lng], Math.max(map.current.getZoom(), 17), { animate: true, duration: .6 });
+    window.setTimeout(() => { automaticMapMove.current = false; }, 750);
   };
-  return <section className={`route-section route-navigation ${active ? 'has-active-trip' : 'no-active-trip'}`}><div className="section-head route-section-title"><div><p className="eyebrow">SEGUIMIENTO</p><h2>{active ? 'Ubicación en tiempo real' : 'Mapa de recorridos'}</h2><p>{active ? `Movilidad ${vehicleName(data,active.vehicleId)} en ruta. Puedes explorar el mapa libremente.` : 'El mapa se ampliará automáticamente cuando inicies una salida.'}</p></div>{active&&<span className="tracking-badge">● GPS en vivo</span>}</div><div className="route-map-shell"><div ref={mapNode} className="route-map"/>{active&&<><div className="route-map-status"><span className="route-live-dot"/><div><b>{vehicleName(data,active.vehicleId)}</b><small>{isTripDriver&&tracking?'Enviando ubicación':'Ubicación del chofer'}</small></div></div><button type="button" className="map-recenter-button" onClick={focusVehicle} title="Volver a mi vehículo" aria-label="Volver a mi vehículo">⌖</button></>}</div><p className="route-note">{message}</p></section>;
+
+  return <section className={`route-section route-navigation ${active ? 'has-active-trip' : 'no-active-trip'}`}><div className="section-head route-section-title"><div><p className="eyebrow">SEGUIMIENTO</p><h2>{active ? 'Ubicación en tiempo real' : 'Mapa de recorridos'}</h2><p>{active ? `Movilidad ${vehicleName(data, active.vehicleId)} en ruta. Puedes explorar el mapa libremente.` : 'El mapa se ampliará automáticamente cuando inicies una salida.'}</p></div>{active && <span className="tracking-badge">● GPS en vivo</span>}</div><div className="route-map-shell"><div ref={mapNode} className="route-map" />{active && <><div className="route-map-status"><span className="route-live-dot" /><div><b>{vehicleName(data, active.vehicleId)}</b><small>{isTripDriver && tracking ? 'Enviando ubicación' : 'Ubicación del chofer'}</small></div></div><button type="button" className="map-recenter-button" onClick={focusVehicle} title="Volver a mi vehículo" aria-label="Volver a mi vehículo">⌖</button></>}</div><p className="route-note">{message}</p></section>;
 }
 function Metric({label,value,note}) { return <div className="metric"><span className="metric-label">{label}</span><div className="metric-value">{value}</div><small>{note}</small></div>; }
 function List({title,text,onAdd,hideAdd=false,children}) { return <section><div className="section-head"><div><h2>{title}</h2><p>{text}</p></div>{!hideAdd&&<button className="primary" onClick={onAdd}>+ Agregar</button>}</div>{children}</section>; }
@@ -985,10 +1182,10 @@ function UsersPage({drivers,vehicles,onChanged}) {
   return <section className="users-page"><div className="users-intro"><p className="eyebrow">ADMINISTRACIÓN</p><h2>Choferes y accesos</h2><p>Autoriza exactamente qué puede ver y usar cada chofer.</p></div><div className="grid-two"><form className="panel users-form" onSubmit={create}><h2>Nuevo chofer</h2><label>Nombre completo</label><input required value={form.fullName} onChange={event=>setForm({...form,fullName:event.target.value})}/><label>Código de acceso</label><input required value={form.accessCode} onChange={event=>setForm({...form,accessCode:event.target.value.toUpperCase()})} pattern="[A-Za-z0-9_-]{4,20}"/><label>PIN inicial de 6 números</label><input required value={form.pin} onChange={event=>setForm({...form,pin:event.target.value.replace(/\D/g,'').slice(0,6)})} inputMode="numeric" pattern="\d{6}"/><button className="primary">Crear acceso</button></form><article className="panel"><h2>Permisos</h2><p className="users-message">{message||'Los cambios se guardan para cada chofer.'}</p></article></div><section className="panel users-list"><h2>Choferes registrados</h2>{drivers.map(driver=><article className="driver-card" key={driver.id}><div><b>{driver.full_name}</b><small>{driver.access_code}</small><Permissions driver={driver} vehicles={vehicles} onSave={savePermissions}/></div></article>)}</section></section>;
 }
 function Permissions({driver,vehicles,onSave}) {
-  const defaults={departure:true,arrival:true,trips:true,fuel:false,maintenance:false};
+  const defaults={departure:true,arrival:true,trips:true,fuel:false};
   const [permissions,setPermissions]=useState({...defaults,...(driver.permissions||{})});
   const [editing,setEditing]=useState(false);
-  const options=[['departure','Salida'],['arrival','Llegada'],['trips','Recorridos propios'],['fuel','Combustible'],['maintenance','Mantenimiento']];
+  const options=[['departure','Salida'],['arrival','Llegada'],['trips','Recorridos propios'],['fuel','Combustible']];
   const cancel=()=>{setPermissions({...defaults,...(driver.permissions||{})});setEditing(false);};
   const save=async()=>{if(await onSave(driver,permissions))setEditing(false);};
   return <div className="permission-controls">
@@ -1609,7 +1806,7 @@ createRoot(document.getElementById('root')).render(<App />);
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', async () => {
     try {
-      const workerVersion = 'v102';
+      const workerVersion = 'v103';
       const workerUrl = `./sw.js?v=${workerVersion}`;
       const previous = await navigator.serviceWorker.getRegistration('./');
       const needsReplacement = Boolean(previous && !previous.active?.scriptURL.includes(`v=${workerVersion}`));

@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .pnpm-store/
+.tools/
 docx_render/
 *.log
 .env

@@ -27,10 +27,30 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Preparar Java para Android
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
       - name: Instalar dependencias
         run: npm install
-      - name: Compilar aplicación
+      - name: Ejecutar pruebas
+        run: npm test
+      - name: Compilar aplicación web
         run: npm run build
+      - name: Sincronizar aplicación Android
+        run: npx cap sync android
+      - name: Compilar APK Android
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+      - name: Subir APK Android
+        uses: actions/upload-artifact@v4
+        with:
+          name: RutaControl-Android
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
       - name: Subir página
         uses: actions/upload-pages-artifact@v3
         with:
