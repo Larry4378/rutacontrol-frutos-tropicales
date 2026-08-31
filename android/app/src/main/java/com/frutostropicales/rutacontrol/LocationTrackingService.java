@@ -320,7 +320,7 @@ public class LocationTrackingService extends Service {
         );
         return new NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("RutaControl · GPS en vivo")
+            .setContentTitle("FTP-ODOMETRO · GPS en vivo")
             .setContentText(detail)
             .setContentIntent(contentIntent)
             .setOngoing(true)

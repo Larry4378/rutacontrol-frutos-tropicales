@@ -1,4 +1,4 @@
-name: Publicar RutaControl en GitHub Pages
+name: Publicar FTP-ODOMETRO en GitHub Pages
 
 on:
   push:
@@ -45,11 +45,13 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
+      - name: Nombrar instalador FTP-ODOMETRO
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk android/app/build/outputs/apk/debug/FTP-ODOMETRO.apk
       - name: Subir APK Android
         uses: actions/upload-artifact@v4
         with:
-          name: RutaControl-Android
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: FTP-ODOMETRO
+          path: android/app/build/outputs/apk/debug/FTP-ODOMETRO.apk
           if-no-files-found: error
       - name: Subir página
         uses: actions/upload-pages-artifact@v3
