@@ -96,6 +96,16 @@ export const gpsPointFromLiveRow = row => {
     : null;
 };
 
+// El mapa remoto debe aplicar las mismas reglas que el teléfono. Realtime
+// transporta la lectura cruda para no inventar coordenadas en el servidor;
+// aquí se descartan saltos falsos y se interpola únicamente hacia el punto
+// real más reciente.
+export const stabilizeLiveGpsRow = (previous, row) => {
+  const point = gpsPointFromLiveRow(row);
+  if (!point || !shouldKeepGpsPoint(previous, point)) return null;
+  return stabilizeGpsPoint(previous, point);
+};
+
 export const isGpsPointFresh = (point, now = Date.now()) => {
   const timestamp = Number(point?.timestamp || Date.parse(point?.at || ''));
   return Number.isFinite(timestamp) && now - timestamp >= 0 && now - timestamp <= GPS_LIVE_STALE_AFTER_MS;

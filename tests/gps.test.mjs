@@ -7,6 +7,7 @@ import {
   isGpsPointFresh,
   shouldKeepGpsPoint,
   stabilizeGpsPoint,
+  stabilizeLiveGpsRow,
 } from '../src/gps.js';
 
 const base = {
@@ -103,6 +104,32 @@ test('convierte la fila de ubicación en vivo en un punto GPS utilizable', () =>
   assert.equal(point.lng, -77.6049);
   assert.equal(point.accuracy, 4);
   assert.equal(point.at, capturedAt);
+});
+
+test('el mapa remoto rechaza un salto falso recibido por Realtime', () => {
+  const capturedAt = new Date(base.timestamp + 1_100).toISOString();
+  const point = stabilizeLiveGpsRow(base, {
+    latitude: base.lat + 0.004,
+    longitude: base.lng,
+    accuracy: 5,
+    speed: 8,
+    captured_at: capturedAt,
+  });
+  assert.equal(point, null);
+});
+
+test('el mapa remoto suaviza una lectura válida sin adelantar el vehículo', () => {
+  const capturedAt = new Date(base.timestamp + 1_100).toISOString();
+  const latitude = base.lat + 0.00009;
+  const point = stabilizeLiveGpsRow(base, {
+    latitude,
+    longitude: base.lng,
+    accuracy: 5,
+    speed: 8,
+    captured_at: capturedAt,
+  });
+  assert.ok(point.lat > base.lat);
+  assert.ok(point.lat <= latitude);
 });
 
 test('distingue una ubicación en vivo de una posición atrasada', () => {

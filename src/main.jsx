@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { createWorker } from 'tesseract.js';
 import L from 'leaflet';
 import { supabase, SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from './supabase';
-import { GPS_TRACKING_MAX_ACCURACY_METERS, gpsDistanceMeters, gpsPointFromLiveRow, isGpsPointFresh, shouldKeepGpsPoint, stabilizeGpsPoint } from './gps.js';
+import { GPS_TRACKING_MAX_ACCURACY_METERS, gpsDistanceMeters, isGpsPointFresh, shouldKeepGpsPoint, stabilizeGpsPoint, stabilizeLiveGpsRow } from './gps.js';
 import { addNativeLocationListener, getNativeLocationStatus, isNativeAndroidLocation, startNativeLocationTracking, stopNativeLocationTracking } from './native-location.js';
 import { arrivalSubmissionError, isPositiveKilometer, normalizeKilometerInput } from './odometer-form.js';
 import 'leaflet/dist/leaflet.css';
@@ -874,7 +874,8 @@ function RouteMap({ data, profile, driverPreview, onUpdate }) {
     if (!active?.id || (isTripDriver && nativeGps)) return;
     let mounted = true;
     const acceptRow = row => {
-      const point = gpsPointFromLiveRow(row);
+      const previous = livePointRef.current || record.current?.routePoints?.at(-1);
+      const point = stabilizeLiveGpsRow(previous, row);
       if (!point || !mounted) return;
       showLivePoint(point);
       setMessage(isGpsPointFresh(point)
