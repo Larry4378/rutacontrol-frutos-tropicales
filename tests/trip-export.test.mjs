@@ -1,0 +1,49 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { buildTripExportCsv, buildTripExportRows, TRIP_EXPORT_HEADERS } from '../src/trip-export.js';
+
+const completed = {
+  departureDate: '2026-08-30',
+  departureTime: '08:10:12',
+  returnDate: '2026-08-30',
+  returnTime: '10:25:30',
+  vehicleId: 'vehicle-1',
+  driver: 'driver-1',
+  origin: 'Huacho',
+  destination: 'Végueta',
+  startKm: 118000,
+  endKm: 118067,
+  notes: 'Entrega terminada',
+};
+
+const labels = {
+  vehicleName: trip => trip.vehicleId === 'vehicle-1' ? '8588 - KP' : 'Otra unidad',
+  driverName: trip => trip.driver === 'driver-1' ? 'LARRY ESTEVES' : 'Otro conductor',
+};
+
+test('exporta todos los datos visibles de un recorrido finalizado', () => {
+  const [row] = buildTripExportRows([completed], labels);
+  assert.equal(row.length, TRIP_EXPORT_HEADERS.length);
+  assert.deepEqual(row, [
+    '30/08/2026', '08:10:12', '30/08/2026', '10:25:30',
+    '8588 - KP', 'LARRY ESTEVES', 'Huacho', 'Végueta',
+    118000, 118067, 67, 'Finalizado', 'Entrega terminada',
+  ]);
+});
+
+test('un recorrido pendiente conserva vacíos los datos de llegada', () => {
+  const [row] = buildTripExportRows([{ ...completed, returnDate: '', returnTime: '', endKm: '', destination: '' }], labels);
+  assert.equal(row[2], '');
+  assert.equal(row[3], '');
+  assert.equal(row[9], '');
+  assert.equal(row[10], '');
+  assert.equal(row[11], 'En ruta');
+});
+
+test('el CSV abre por columnas en Excel y neutraliza fórmulas', () => {
+  const rows = buildTripExportRows([{ ...completed, origin: '=HIPERVINCULO("sitio")' }], labels);
+  const csv = buildTripExportCsv(rows);
+  assert.ok(csv.startsWith('\ufeffsep=;\r\n'));
+  assert.match(csv, /"'=HIPERVINCULO\(""sitio""\)"/);
+  assert.match(csv, /118000;118067;67;"Finalizado"/);
+});

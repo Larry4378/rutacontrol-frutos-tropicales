@@ -6,6 +6,7 @@ import { supabase, SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from './supabase';
 import { GPS_TRACKING_MAX_ACCURACY_METERS, gpsDistanceMeters, isGpsPointFresh, shouldKeepGpsPoint, stabilizeGpsPoint, stabilizeLiveGpsRow } from './gps.js';
 import { addNativeLocationListener, getNativeLocationStatus, isNativeAndroidLocation, startNativeLocationTracking, stopNativeLocationTracking } from './native-location.js';
 import { arrivalSubmissionError, isPositiveKilometer, normalizeKilometerInput } from './odometer-form.js';
+import { buildTripExportCsv, buildTripExportRows } from './trip-export.js';
 import 'leaflet/dist/leaflet.css';
 import '../styles.css';
 import '../mango.css';
@@ -1124,6 +1125,20 @@ function Trips({data,drivers=[],profile,onEdit,onDelete}) {
     return (!query||searchable.includes(query))&&(!filters.date||t.departureDate===filters.date)&&(!filters.vehicleId||t.vehicleId===filters.vehicleId)&&(!filters.driver||displayDriver===filters.driver)&&(!filters.status||(filters.status==='En ruta'?!t.endKm:!!t.endKm));
   });
   const driverNames=[...new Set(visibleTrips.map(driverName).filter(Boolean))];
+  const downloadFilteredTrips=()=>{
+    const orderedTrips=filtered.slice().reverse();
+    const rows=buildTripExportRows(orderedTrips,{
+      vehicleName:trip=>vehicleName(data,trip.vehicleId),
+      driverName,
+    });
+    const blob=new Blob([buildTripExportCsv(rows)],{type:'text/csv;charset=utf-8'});
+    const url=URL.createObjectURL(blob);
+    const anchor=document.createElement('a');
+    anchor.href=url;
+    anchor.download=`recorridos_filtrados_${today()}.csv`;
+    anchor.click();
+    window.setTimeout(()=>URL.revokeObjectURL(url),1000);
+  };
   const showOdometerPhoto=async (trip,stage)=>{
     const stageLabel=stage==='return'?'llegada':'salida';
     setPhoto({loading:true});
@@ -1148,6 +1163,7 @@ function Trips({data,drivers=[],profile,onEdit,onDelete}) {
       <select aria-label="Filtrar por vehículo" value={filters.vehicleId} onChange={e=>setFilters({...filters,vehicleId:e.target.value})}><option value="">Todos los vehículos</option>{data.vehicles.map(v=><option value={v.id} key={v.id}>{v.plate}</option>)}</select>
       <select aria-label="Filtrar por chofer" value={filters.driver} onChange={e=>setFilters({...filters,driver:e.target.value})}><option value="">Todos los choferes</option>{driverNames.map(driver=><option key={driver}>{driver}</option>)}</select>
       <select aria-label="Filtrar por estado" value={filters.status} onChange={e=>setFilters({...filters,status:e.target.value})}><option value="">Todos los estados</option><option>En ruta</option><option>Finalizado</option></select>
+      <button type="button" className="primary trip-export-button" onClick={downloadFilteredTrips} disabled={!filtered.length}>⇩ Descargar Excel ({filtered.length})</button>
     </div>
     <Table heads={['Salida','Llegada','Vehículo','Chofer','Origen → destino','Odómetro','Total','']}>
       {filtered.slice().reverse().map(t=><tr key={t.id}>
