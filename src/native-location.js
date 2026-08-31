@@ -11,4 +11,3 @@ export const startNativeLocationTracking = options => NativeLocation.start(optio
 export const stopNativeLocationTracking = () => NativeLocation.stop();
 
 export const getNativeLocationStatus = () => NativeLocation.getStatus();
-

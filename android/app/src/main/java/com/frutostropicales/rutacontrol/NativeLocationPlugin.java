@@ -113,4 +113,3 @@ public class NativeLocationPlugin extends Plugin {
         super.handleOnDestroy();
     }
 }
-

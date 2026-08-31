@@ -14,7 +14,6 @@ test('Android declara ubicación precisa y el servicio GPS en primer plano', () 
   assert.match(manifest, /android:foregroundServiceType="location"/);
   assert.match(activity, /registerPlugin\(NativeLocationPlugin\.class\)/);
 });
-
 test('el GPS nativo solicita posiciones frecuentes sin agruparlas', () => {
   assert.match(service, /LOCATION_INTERVAL_MS = 1000L/);
   assert.match(service, /MIN_LOCATION_INTERVAL_MS = 750L/);
@@ -43,4 +42,3 @@ test('la tabla en vivo usa RLS y autoriza únicamente el viaje propio o al admin
   assert.match(migration, /private\.is_rutacontrol_admin\(\)/);
   assert.match(migration, /alter publication supabase_realtime add table public\.trip_live_locations/);
 });
-
