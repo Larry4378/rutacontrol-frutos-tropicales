@@ -1,0 +1,48 @@
+name: Verificar RutaControl Android
+
+on:
+  push:
+    branches: ['codex/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar código
+        uses: actions/checkout@v4
+      - name: Preparar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Preparar Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Preparar Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Instalar Android 36
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - name: Instalar dependencias
+        run: npm install
+      - name: Ejecutar pruebas
+        run: npm test
+      - name: Compilar aplicación web
+        run: npm run build
+      - name: Sincronizar Android
+        run: npx cap sync android
+      - name: Compilar APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+      - name: Subir APK verificada
+        uses: actions/upload-artifact@v4
+        with:
+          name: RutaControl-Android-verificacion
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
