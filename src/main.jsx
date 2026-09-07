@@ -305,10 +305,15 @@ function App() {
   const [profile, setProfile] = useState(null);
   const [profileReady, setProfileReady] = useState(false);
   const [drivers, setDrivers] = useState([]);
+  const [tripDrivers, setTripDrivers] = useState([]);
   const [driverPreview, setDriverPreview] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
   const [installPrompt, setInstallPrompt] = useState(null);
   const [webAppInstalled, setWebAppInstalled] = useState(() => window.matchMedia?.('(display-mode: standalone)').matches || Boolean(window.navigator.standalone));
+  const tripHistoryDrivers = useMemo(() => {
+    const unique = new Map([...drivers, ...tripDrivers].map(driver => [String(driver.id), driver]));
+    return [...unique.values()];
+  }, [drivers, tripDrivers]);
 
   useEffect(() => localStorage.setItem('rutacontrol-react', JSON.stringify(data)), [data]);
   useEffect(() => { const timer = setTimeout(() => setShowSplash(false), 1900); return () => clearTimeout(timer); }, []);
@@ -441,16 +446,24 @@ function App() {
     if (!session) {
       setProfile(null);
       setDrivers([]);
+      setTripDrivers([]);
       setProfileReady(false);
       return;
     }
     setProfileReady(false);
     const { data: own } = await supabase.from('user_profiles').select('id,full_name,role,is_active,permissions').eq('id', session.user.id).maybeSingle();
     setProfile(own || null);
+    let adminDrivers = [];
     if (own?.role === 'admin') {
       const { data: rows } = await supabase.from('user_profiles').select('id,full_name,role,access_code,is_active,permissions,qr_token,created_at').eq('role','driver').order('created_at',{ascending:false});
-      setDrivers(rows || []);
+      adminDrivers = rows || [];
+      setDrivers(adminDrivers);
     } else setDrivers([]);
+    const { data: directory } = await supabase.rpc('list_active_trip_drivers');
+    const fallbackDirectory = own?.role === 'driver' && own?.is_active
+      ? [{ id: own.id, full_name: own.full_name }]
+      : adminDrivers.filter(driver => driver.is_active).map(driver => ({ id: driver.id, full_name: driver.full_name }));
+    setTripDrivers(directory?.length ? directory : fallbackDirectory);
     setProfileReady(true);
   };
   useEffect(() => { loadUsers(); }, [session]);
@@ -499,7 +512,7 @@ function App() {
       }
       // El nombre visible del conductor nunca se envía a una columna UUID.
       // Para llegadas se conserva el ID que se registró al iniciar la salida.
-      const tripDriverId = record.driverProfileId || user.id;
+      const tripDriverId = user.id;
       const tripDriverProfileId = record.driverProfileId || user.id;
       const payload = {
         id: record.id, vehicle_id: record.vehicleId, driver_id: tripDriverId, driver_profile_id: tripDriverProfileId,
@@ -661,8 +674,8 @@ function App() {
     <KilometerInputGuard />
     <aside className="sidebar"><div className="company-name">FRUTOS TROPICALES<br/><span>EXPORT. PERÚ</span></div><div className="brand"><span className="brand-mark">F</span><span>FTP - ODOMETRO</span></div><nav>{nav.map(([key, icon, label]) => <button key={key} className={`nav-link ${view === key ? 'active' : ''}`} onClick={() => { setView(key); setModal(null); }}>{icon}<span>{label}</span></button>)}</nav><div className="sidebar-note">{session.user.email}<br/><small>{driverPreview?'Vista de chofer · Administración conservada':'Sesión segura · Administrador'}</small>{profile?.role==='admin'&&<button className="sidebar-preview" onClick={()=>{setDriverPreview(value=>!value);setView('dashboard');setModal(null);}}>{driverPreview?'↩ Volver a administrador':'◉ Vista de chofer'}</button>}<button className="sidebar-logout" onClick={logout}>↪ Salir</button></div></aside>
     <main className={modal ? 'modal-open' : ''}>{error && <p className="sync-error">{error}</p>}<header><div><p className="eyebrow">FRUTOS TROPICALES EXPORT. PERÚ · CONTROL VEHICULAR</p><h1>{title}</h1></div><div className="header-actions"><PwaInstallButton installed={webAppInstalled} onInstall={installWebApp}/><button className="mobile-logout" onClick={logout}>↪ Cerrar sesión</button></div></header>
-      {view === 'dashboard' && <Dashboard data={data} profile={profile} driverPreview={driverPreview} km={tripsKm} permissions={profile?.role === 'driver' && !driverPreview ? driverPermissions : {departure:true,arrival:true}} driverName={profile?.role === 'driver' ? profile.full_name : ''} onGo={setView} onDeparture={() => setModal({type:'quickDeparture'})} onReturn={() => setModal({type:'quickReturn'})} onTripUpdate={record => update('trips',record)} tripForm={modal?.type === 'quickDeparture' ? <DepartureGpsRequired data={data} driverName={profile?.role === 'driver' ? profile.full_name : ''} driverId={profile?.role === 'driver' && !driverPreview ? profile.id : ''} assignedVehicleId={profile?.role === 'driver' && !driverPreview ? profile.permissions?.assignedVehicleId : ''} assignedVehicleLabel={profile?.role === 'driver' && !driverPreview ? profile.permissions?.assignedVehicleLabel : ''} onClose={() => setModal(null)} onSave={async record => { const saved={...record,...(window.departureEvidence||{}),departureDate:today(),departureTime:now()}; const registered=await update('trips',saved); if(registered){setModal(null);setSuccessMessage('Salida registrada correctamente.');} return registered; }} /> : modal?.type === 'quickReturn' ? <ArrivalSimple data={data} driverName={profile?.role === 'driver' && !driverPreview ? profile.full_name : ''} driverId={profile?.role === 'driver' && !driverPreview ? profile.id : ''} onClose={() => setModal(null)} onSave={async record => { const registered=await update('trips',{...record,returnDate:today(),returnTime:now()}); if(registered){setModal(null);setSuccessMessage('Llegada registrada correctamente.');} return registered; }} /> : null} />}
-      {view === 'trips' && <List title="Historial de recorridos" text="Consulta, filtra y edita las salidas y llegadas registradas." hideAdd><Trips data={data} drivers={drivers} profile={profile} onEdit={record => setModal({type:'trip',record})} onDelete={record => remove('trips',record.id)} /></List>}
+      {view === 'dashboard' && <Dashboard data={data} profile={profile} driverPreview={driverPreview} km={tripsKm} permissions={profile?.role === 'driver' && !driverPreview ? driverPermissions : {departure:true,arrival:true}} driverName={profile?.role === 'driver' ? profile.full_name : ''} onGo={setView} onDeparture={() => setModal({type:'quickDeparture'})} onReturn={() => setModal({type:'quickReturn'})} onTripUpdate={record => update('trips',record)} tripForm={modal?.type === 'quickDeparture' ? <DepartureGpsRequired data={data} drivers={tripDrivers} driverName={profile?.role === 'driver' ? profile.full_name : ''} driverId={profile?.role === 'driver' && !driverPreview ? profile.id : ''} assignedVehicleId={profile?.role === 'driver' && !driverPreview ? profile.permissions?.assignedVehicleId : ''} assignedVehicleLabel={profile?.role === 'driver' && !driverPreview ? profile.permissions?.assignedVehicleLabel : ''} onClose={() => setModal(null)} onSave={async record => { const saved={...record,...(window.departureEvidence||{}),departureDate:today(),departureTime:now()}; const registered=await update('trips',saved); if(registered){setModal(null);setSuccessMessage('Salida registrada correctamente.');} return registered; }} /> : modal?.type === 'quickReturn' ? <ArrivalSimple data={data} driverName={profile?.role === 'driver' && !driverPreview ? profile.full_name : ''} driverId={profile?.role === 'driver' && !driverPreview ? profile.id : ''} onClose={() => setModal(null)} onSave={async record => { const registered=await update('trips',{...record,returnDate:today(),returnTime:now()}); if(registered){setModal(null);setSuccessMessage('Llegada registrada correctamente.');} return registered; }} /> : null} />}
+      {view === 'trips' && <List title="Historial de recorridos" text="Consulta, filtra y edita las salidas y llegadas registradas." hideAdd><Trips data={data} drivers={tripHistoryDrivers} profile={profile} onEdit={record => setModal({type:'trip',record})} onDelete={record => remove('trips',record.id)} /></List>}
       {view === 'fuel' && <List title="Control de combustible" text={profile?.role === 'admin' && !driverPreview ? 'Revisa los comprobantes enviados por toda la flota.' : 'Envía tu comprobante y consulta los que ya registraste.'} onAdd={() => setModal({type:'fuel'})}><Fuel data={data} drivers={drivers} profile={profile} isAdmin={profile?.role === 'admin' && !driverPreview} onEdit={record => setModal({type:'fuel',record})} onDelete={record => remove('fuels',record.id)} /></List>}
       {view === 'vehicles' && <List title="Vehículos" text="Administra placa, odómetro y estado." onAdd={() => setModal({type:'vehicle'})}><Vehicles data={data} onEdit={record => setModal({type:'vehicle',record})} onDelete={record => remove('vehicles',record)} /></List>}
       {view === 'reports' && <Reports data={data} />}
@@ -736,7 +749,9 @@ function MaintenanceAlerts({data, profile, driverPreview, onGo}) {
 function MangoQuickActions({permissions,onDeparture,onReturn}) { return <section className="mango-actions"><div><p className="eyebrow">ACCESO RÁPIDO</p><h2>¿El vehículo sale o llega?</h2><p>Registra el movimiento con un toque.</p></div><div className="mango-buttons">{permissions.departure&&<button className="mango-button departure" onClick={onDeparture}><i className="mango-fruit"/><span>Registrar<br/><b>Salida</b></span></button>}{permissions.arrival&&<button className="mango-button arrival" onClick={onReturn}><i className="mango-fruit"/><span>Registrar<br/><b>Llegada</b></span></button>}</div></section>; }
 function RouteMap({ data, profile, driverPreview, onUpdate }) {
   const active = data.trips.find(isTripOpen);
-  const isTripDriver = Boolean(profile?.role === 'driver' && !driverPreview && String(active?.driverProfileId || active?.driver || '') === String(profile?.id || ''));
+  // El usuario que abrió el viaje es responsable de transmitir el GPS, aunque
+  // haya seleccionado a otro conductor como responsable visible del recorrido.
+  const isTripDriver = Boolean(profile?.role === 'driver' && !driverPreview && String(active?.driver || '') === String(profile?.id || ''));
   const nativeGps = isNativeAndroidLocation();
   const mapNode = useRef(null);
   const map = useRef(null);
@@ -1091,7 +1106,7 @@ function Trips({data,drivers=[],profile,onEdit,onDelete}) {
   const visibleTrips = useMemo(() => {
     if (profile?.role !== 'driver') return data.trips;
     const ownId = String(profile.id || '');
-    return data.trips.filter(trip => String(trip.driverProfileId || trip.driver || '') === ownId);
+    return data.trips.filter(trip => String(trip.driver || '') === ownId || String(trip.driverProfileId || '') === ownId);
   }, [data.trips, profile?.id, profile?.role]);
   const driverName = trip => {
     const profileId = String(trip.driverProfileId || trip.driver || '');
@@ -1600,21 +1615,29 @@ function PhotoSource({ onChange, onStored, accept = 'image/*', withCamera = true
   return <div className="photo-source">{withCamera && <label>◉ Tomar foto<input type="file" accept={accept} capture="environment" onChange={select} /></label>}<label>▣ Elegir de galería<input type="file" accept={accept} onChange={select} /></label>{fileName && <small className="photo-loaded">{fileName}</small>}{showPreview && previewUrl && <figure className="odometer-photo-preview"><img src={previewUrl} alt="Vista previa de la foto adjuntada" /><figcaption>Vista previa de la foto que se guardará</figcaption></figure>}</div>;
 }
 
-function DepartureGpsRequired({ data, driverName = '', driverId = '', assignedVehicleId = '', assignedVehicleLabel = '', onClose, onSave }) {
-  const [form, setForm] = useState({ departureDate: today(), departureTime: now(), driver: driverName, vehicleId: assignedVehicleId });
+function DepartureGpsRequired({ data, drivers = [], driverName = '', driverId = '', assignedVehicleId = '', assignedVehicleLabel = '', onClose, onSave }) {
+  const [form, setForm] = useState({ departureDate: today(), departureTime: now(), driver: driverName, driverProfileId: driverId, vehicleId: assignedVehicleId });
   const [status, setStatus] = useState('');
   const [gpsReady, setGpsReady] = useState(false);
+  const [gpsLoading, setGpsLoading] = useState(true);
   const [clock, setClock] = useState(now());
   const [photoSelected, setPhotoSelected] = useState(false);
+  const autoGpsRequested = useRef(false);
   const assignedVehicle = data.vehicles.find(vehicle => String(vehicle.id) === String(assignedVehicleId));
   const assignedLabel = assignedVehicle ? `${assignedVehicle.plate} · ${assignedVehicle.brand}` : assignedVehicleLabel;
   const pendingTrip = data.trips.find(trip => isTripOpen(trip) && (
     (driverId && String(trip.driver || '') === String(driverId)) ||
-    (!driverId && form.driver && String(trip.driver || '').trim().toLowerCase() === String(form.driver).trim().toLowerCase()) ||
+    (!driverId && form.driverProfileId && String(trip.driverProfileId || '') === String(form.driverProfileId)) ||
     (form.vehicleId && String(trip.vehicleId || '') === String(form.vehicleId))
   ));
   const change = (key, value) => setForm(current => ({ ...current, [key]: value }));
-  useEffect(() => { if (driverName) change('driver', driverName); }, [driverName]);
+  const selectDriver = value => {
+    const selected = drivers.find(driver => String(driver.id) === String(value));
+    setForm(current => ({ ...current, driverProfileId: value, driver: selected?.full_name || '' }));
+  };
+  useEffect(() => {
+    if (driverId) setForm(current => ({ ...current, driver: driverName, driverProfileId: driverId }));
+  }, [driverId, driverName]);
   useEffect(() => { if (assignedVehicleId) change('vehicleId', assignedVehicleId); }, [assignedVehicleId]);
   useEffect(() => { const timer = setInterval(() => { const time = now(); setClock(time); setForm(current => ({ ...current, departureDate: today(), departureTime: time })); }, 1000); return () => clearInterval(timer); }, []);
   const ocr = async file => {
@@ -1631,10 +1654,12 @@ function DepartureGpsRequired({ data, driverName = '', driverId = '', assignedVe
   };
   const gps = () => {
     if (!navigator.geolocation) {
+      setGpsLoading(false);
       setStatus('Este navegador no permite GPS.');
       window.alert('Este navegador no permite obtener la ubicación GPS. Activa la ubicación del celular y vuelve a “Registrar salida”.');
       return;
     }
+    setGpsLoading(true);
     setStatus('Obteniendo ubicación y dirección…');
     navigator.geolocation.getCurrentPosition(async position => {
       const { latitude, longitude, accuracy } = position.coords;
@@ -1648,10 +1673,18 @@ function DepartureGpsRequired({ data, driverName = '', driverId = '', assignedVe
         at: new Date().toISOString(),
       };
       let origin = `GPS: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+      change('origin', origin);
+      change('routePoints', [departurePoint]);
+      change('gpsAccuracy', Math.round(accuracy));
+      setGpsReady(true);
+      setGpsLoading(false);
+      setStatus('Ubicación GPS registrada. Buscando la dirección…');
       try { const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}`); const place = await response.json(); origin = place.display_name || origin; } catch {}
-      change('origin', origin); change('routePoints', [departurePoint]); change('gpsAccuracy', Math.round(accuracy)); setGpsReady(true); setStatus('Origen GPS registrado correctamente.');
+      change('origin', origin);
+      setStatus('Origen GPS registrado correctamente.');
     }, error => {
       setGpsReady(false);
+      setGpsLoading(false);
       setStatus(error?.code === 1
         ? 'Debes permitir a Google Chrome usar la ubicación para confirmar la salida.'
         : 'Activa la ubicación GPS del celular para confirmar la salida.');
@@ -1660,6 +1693,11 @@ function DepartureGpsRequired({ data, driverName = '', driverId = '', assignedVe
         : 'Activa la ubicación (GPS) de tu celular. Después vuelve a “Registrar salida”.');
     }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
   };
+  useEffect(() => {
+    if (pendingTrip || autoGpsRequested.current) return;
+    autoGpsRequested.current = true;
+    gps();
+  }, [Boolean(pendingTrip)]);
   const submit = event => {
     event.preventDefault();
     if (pendingTrip) return alert('Primero debes registrar la llegada de tu salida pendiente.');
@@ -1668,7 +1706,7 @@ function DepartureGpsRequired({ data, driverName = '', driverId = '', assignedVe
     if (!isPositiveKilometer(form.startKm)) return alert('Escribe manualmente un kilometraje de salida válido.');
     onSave({ ...form, id: id(), departureDate: today(), departureTime: now(), status: 'En ruta' });
   };
-  return <><dialog open className="quick-departure-modal"><form className="departure-form" onSubmit={submit}><div className="modal-head"><div><p className="eyebrow">SALIDA</p><h2>Registrar salida rápida</h2></div><button type="button" className="close" onClick={onClose}>×</button></div><p className="live-clock">Hora actual: <b>{clock}</b></p>{pendingTrip ? <><p className="empty-message">Ya tienes una salida pendiente con <b>{vehicleName(data, pendingTrip.vehicleId)}</b>. Registra primero tu llegada para iniciar otro recorrido.</p><div className="form-actions"><button type="button" className="primary" onClick={onClose}>Entendido</button></div></> : <>{status && <p className="ocr-status" aria-live="polite">{status}</p>}<div className="form-grid"><div className="field full"><label>Vehículo asignado</label><select required value={form.vehicleId || ''} onChange={event => change('vehicleId', event.target.value)}>{assignedVehicleId && <option value={assignedVehicleId}>{assignedLabel || 'Vehículo asignado'}</option>}{!assignedVehicleId && <option value="">Seleccionar vehículo</option>}{data.vehicles.filter(vehicle => String(vehicle.id) !== String(assignedVehicleId)).map(vehicle => <option key={vehicle.id} value={vehicle.id}>{vehicle.plate} · {vehicle.brand}</option>)}</select><small className="field-help">Tu vehículo aparece por defecto. Cámbialo solo si ese día utilizas otra movilidad.</small></div><div className="field"><label>Fecha</label><input type="date" value={form.departureDate} readOnly /></div><div className="field"><label>Hora</label><input type="time" step="1" value={form.departureTime} readOnly /></div><div className="field"><label>Conductor</label><input required value={form.driver || ''} onChange={event => change('driver', event.target.value)} readOnly={Boolean(driverName)} placeholder="Se completa al iniciar sesión" /></div><div className="field"><label>Origen detectado por GPS</label><input required value={form.origin || ''} readOnly placeholder="Activa GPS para obtener la dirección" /><button type="button" className="gps-button" onClick={gps}>⌖ Activar GPS y obtener origen</button></div><div className="field full"><label>Foto del odómetro de salida</label><PhotoSource onChange={event => ocr(event.target.files?.[0])} onStored={storeDeparturePhoto} showPreview /></div><div className="field full"><label>Kilometraje de salida</label><input required type="text" inputMode="decimal" pattern="\d+(?:\.\d+)?" value={form.startKm || ''} onChange={event => change('startKm', normalizeKilometerInput(event.target.value))} placeholder="Escribe el kilometraje que muestra el tablero" /><small className="field-help">La foto es obligatoria y podrás revisarla aquí. Después escribe manualmente el kilometraje que aparece en el tablero.</small></div></div><div className="form-actions"><button type="button" className="secondary" onClick={onClose}>Cancelar</button><button className="primary" disabled={!gpsReady || !photoSelected || !isPositiveKilometer(form.startKm)}>Confirmar salida</button></div></>}</form></dialog>{!pendingTrip && <EvidenceInjector />}</>;
+  return <><dialog open className="quick-departure-modal"><form className="departure-form" onSubmit={submit}><div className="modal-head"><div><p className="eyebrow">SALIDA</p><h2>Registrar salida rápida</h2></div><button type="button" className="close" onClick={onClose}>×</button></div><p className="live-clock">Hora actual: <b>{clock}</b></p>{pendingTrip ? <><p className="empty-message">Ya tienes una salida pendiente con <b>{vehicleName(data, pendingTrip.vehicleId)}</b>. Registra primero tu llegada para iniciar otro recorrido.</p><div className="form-actions"><button type="button" className="primary" onClick={onClose}>Entendido</button></div></> : <>{status && <p className="ocr-status" aria-live="polite">{status}</p>}<div className="form-grid"><div className="field full"><label>Vehículo asignado</label><select required value={form.vehicleId || ''} onChange={event => change('vehicleId', event.target.value)}>{assignedVehicleId && <option value={assignedVehicleId}>{assignedLabel || 'Vehículo asignado'}</option>}{!assignedVehicleId && <option value="">Seleccionar vehículo</option>}{data.vehicles.filter(vehicle => String(vehicle.id) !== String(assignedVehicleId)).map(vehicle => <option key={vehicle.id} value={vehicle.id}>{vehicle.plate} · {vehicle.brand}</option>)}</select><small className="field-help">Tu vehículo aparece por defecto. Cámbialo solo si ese día utilizas otra movilidad.</small></div><div className="field"><label>Fecha</label><input type="date" value={form.departureDate} readOnly /></div><div className="field"><label>Hora</label><input type="time" step="1" value={form.departureTime} readOnly /></div><div className="field"><label>Conductor asignado</label><select required value={form.driverProfileId || ''} onChange={event => selectDriver(event.target.value)}><option value="">Seleccionar conductor</option>{drivers.map(driver => <option key={driver.id} value={driver.id}>{driver.full_name}</option>)}</select><small className="field-help">Tu usuario aparece por defecto. Selecciona otro conductor solo cuando corresponda.</small></div><div className="field"><label>Origen detectado por GPS</label><input required value={form.origin || ''} readOnly placeholder={gpsLoading ? 'Obteniendo GPS…' : 'Activa GPS para obtener la dirección'} />{!gpsReady && !gpsLoading && <button type="button" className="gps-button" onClick={gps}>↻ Reintentar GPS</button>}</div><div className="field full"><label>Foto del odómetro de salida</label><PhotoSource onChange={event => ocr(event.target.files?.[0])} onStored={storeDeparturePhoto} showPreview /></div><div className="field full"><label>Kilometraje de salida</label><input required type="text" inputMode="decimal" pattern="\d+(?:\.\d+)?" value={form.startKm || ''} onChange={event => change('startKm', normalizeKilometerInput(event.target.value))} placeholder="Escribe el kilometraje que muestra el tablero" /><small className="field-help">La foto es obligatoria y podrás revisarla aquí. Después escribe manualmente el kilometraje que aparece en el tablero.</small></div></div><div className="form-actions"><button type="button" className="secondary" onClick={onClose}>Cancelar</button><button className="primary" disabled={!gpsReady || !photoSelected || !form.driverProfileId || !isPositiveKilometer(form.startKm)}>Confirmar salida</button></div></>}</form></dialog>{!pendingTrip && <EvidenceInjector />}</>;
 }
 
 function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }) {
@@ -1677,10 +1715,12 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
   const [status, setStatus] = useState('');
   const [gpsStatus, setGpsStatus] = useState('');
   const [gpsReady, setGpsReady] = useState(false);
+  const [gpsLoading, setGpsLoading] = useState(true);
   const [photoSelected, setPhotoSelected] = useState(false);
   const [saving, setSaving] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [clock, setClock] = useState(now());
+  const autoGpsRequested = useRef(false);
   const trip = active.find(item => item.id === form.tripId);
   const change = (key, value) => setForm(current => ({ ...current, [key]: value }));
   useEffect(() => { if (active.length === 1) change('tripId', active[0].id); }, [active.length, active[0]?.id]);
@@ -1695,6 +1735,7 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
   const gps = () => {
     setSubmitError('');
     if (!navigator.geolocation) {
+      setGpsLoading(false);
       const message = 'Este navegador no permite obtener la ubicación GPS.';
       setGpsStatus(message);
       setSubmitError(message);
@@ -1702,6 +1743,7 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
       return;
     }
     setGpsReady(false);
+    setGpsLoading(true);
     setGpsStatus('Obteniendo ubicación y dirección…');
     navigator.geolocation.getCurrentPosition(async position => {
       const { latitude, longitude, accuracy } = position.coords;
@@ -1717,6 +1759,7 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
       change('arrivalPoint', arrivalPoint);
       change('gpsAccuracy', Math.round(accuracy));
       setGpsReady(true);
+      setGpsLoading(false);
       setGpsStatus('Ubicación GPS registrada. Buscando la dirección…');
       let destination = coordinates;
       try {
@@ -1728,6 +1771,7 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
       setGpsStatus('Destino GPS registrado correctamente.');
     }, error => {
       setGpsReady(false);
+      setGpsLoading(false);
       const message = error?.code === 1
         ? 'La ubicación está bloqueada. Activa el permiso de ubicación y vuelve a abrir este formulario.'
         : error?.code === 3
@@ -1740,6 +1784,11 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
         : 'Activa la ubicación (GPS) de tu celular. Después vuelve a abrir “Registrar llegada”.');
     }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
   };
+  useEffect(() => {
+    if (!active.length || autoGpsRequested.current) return;
+    autoGpsRequested.current = true;
+    gps();
+  }, [active.length]);
   const odometer = async file => {
     if (!file) return false;
     setSubmitError('');
@@ -1815,8 +1864,8 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
             <div className="field full"><label>Fecha</label><input type="date" value={form.returnDate} readOnly /></div>
             <div className="field full">
               <label>Destino real</label>
-              <input required value={form.destination || ''} readOnly placeholder="Obteniendo GPS…" />
-              {!gpsReady && <button type="button" className="gps-button" onClick={gps}>⌖ Activar GPS y obtener destino</button>}
+              <input required value={form.destination || ''} readOnly placeholder={gpsLoading ? 'Obteniendo GPS…' : 'Activa GPS para obtener la dirección'} />
+              {!gpsReady && !gpsLoading && <button type="button" className="gps-button" onClick={gps}>↻ Reintentar GPS</button>}
             </div>
             <div className="field full">
               <label>Foto del odómetro final</label>
@@ -1844,7 +1893,7 @@ createRoot(document.getElementById('root')).render(<App />);
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', async () => {
     try {
-      const workerVersion = 'v104';
+      const workerVersion = 'v105';
       const workerUrl = `./sw.js?v=${workerVersion}`;
       const previous = await navigator.serviceWorker.getRegistration('./');
       const needsReplacement = Boolean(previous && !previous.active?.scriptURL.includes(`v=${workerVersion}`));

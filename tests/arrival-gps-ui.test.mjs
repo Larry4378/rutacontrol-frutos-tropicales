@@ -13,10 +13,13 @@ test('si el GPS falla al registrar una salida muestra el aviso nativo', () => {
   assert.match(departureSource, /Activa la ubicación \(GPS\) de tu celular/);
 });
 
-test('la llegada espera a que el conductor active el GPS con el botón', () => {
+test('la salida y la llegada solicitan el GPS automáticamente al abrirse', () => {
+  const departureStart = mainSource.indexOf('function DepartureGpsRequired');
+  const arrivalStart = mainSource.indexOf('function ArrivalSimple');
+  const departureSource = mainSource.slice(departureStart, arrivalStart);
   const arrivalSource = mainSource.slice(mainSource.indexOf('function ArrivalSimple'));
-  assert.doesNotMatch(arrivalSource, /useEffect\(\(\) => \{ gps\(\); \}, \[\]\);/);
-  assert.match(arrivalSource, /onClick=\{gps\}>⌖ Activar GPS y obtener destino<\/button>/);
+  assert.match(departureSource, /autoGpsRequested\.current = true;\s*gps\(\);/);
+  assert.match(arrivalSource, /autoGpsRequested\.current = true;\s*gps\(\);/);
 });
 
 test('adjuntar la foto no vuelve a ejecutar ni reemplaza el GPS de llegada', () => {
@@ -35,10 +38,10 @@ test('si la llegada realmente coincide con el origen muestra el aviso superior',
   assert.match(arrivalSource, /if \(samePlace \|\| \(Number\.isFinite\(distance\) && distance < 100\)\) \{[\s\S]*?setGpsStatus\(validationError\);/);
 });
 
-test('la llegada muestra el botón GPS solo mientras el destino no esté listo', () => {
+test('la llegada muestra el botón de reintento solo si el GPS automático falla', () => {
   const arrivalSource = mainSource.slice(mainSource.indexOf('function ArrivalSimple'));
   assert.match(mainSource, /className="arrival-form"/);
-  assert.match(arrivalSource, /\{!gpsReady && <button[^>]+onClick=\{gps\}>⌖ Activar GPS y obtener destino<\/button>\}/);
+  assert.match(arrivalSource, /\{!gpsReady && !gpsLoading && <button[^>]+onClick=\{gps\}>↻ Reintentar GPS<\/button>\}/);
   assert.doesNotMatch(arrivalSource, /Actualizar destino con GPS/);
   assert.doesNotMatch(quickStyles, /\.arrival-form[^\n{]*nth-of-type\(3\)[^{]*\{\s*display\s*:\s*none/);
   assert.match(quickStyles, /\.departure-form \.form-grid>\.field:nth-of-type\(3\)\{display:none\}/);
