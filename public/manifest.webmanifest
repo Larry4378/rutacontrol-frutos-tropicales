@@ -1,12 +1,15 @@
 {
-  "name": "FTP - ODOMETRO | Frutos Tropicales",
-  "short_name": "FTP - ODOMETRO",
+  "id": "./",
+  "name": "FTP-ODOMETRO",
+  "short_name": "FTP-ODOMETRO",
   "description": "Control de recorridos y vehículos de Frutos Tropicales Export Perú.",
   "start_url": "./",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#17633c",
   "theme_color": "#17633c",
   "lang": "es-PE",
+  "categories": ["business", "navigation", "productivity"],
   "icons": [
     { "src": "./icons/frutos-tropicales-192.png?v=4", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
     { "src": "./icons/frutos-tropicales-512.png?v=4", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" },

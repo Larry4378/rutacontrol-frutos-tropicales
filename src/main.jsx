@@ -307,9 +307,41 @@ function App() {
   const [drivers, setDrivers] = useState([]);
   const [driverPreview, setDriverPreview] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
+  const [installPrompt, setInstallPrompt] = useState(null);
+  const [webAppInstalled, setWebAppInstalled] = useState(() => window.matchMedia?.('(display-mode: standalone)').matches || Boolean(window.navigator.standalone));
 
   useEffect(() => localStorage.setItem('rutacontrol-react', JSON.stringify(data)), [data]);
   useEffect(() => { const timer = setTimeout(() => setShowSplash(false), 1900); return () => clearTimeout(timer); }, []);
+  useEffect(() => {
+    const captureInstallPrompt = event => {
+      event.preventDefault();
+      setInstallPrompt(event);
+    };
+    const markInstalled = () => {
+      setWebAppInstalled(true);
+      setInstallPrompt(null);
+    };
+    window.addEventListener('beforeinstallprompt', captureInstallPrompt);
+    window.addEventListener('appinstalled', markInstalled);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', captureInstallPrompt);
+      window.removeEventListener('appinstalled', markInstalled);
+    };
+  }, []);
+  const installWebApp = async () => {
+    if (installPrompt) {
+      const prompt = installPrompt;
+      setInstallPrompt(null);
+      await prompt.prompt();
+      const choice = await prompt.userChoice;
+      if (choice.outcome === 'accepted') setWebAppInstalled(true);
+      return;
+    }
+    const appleDevice = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    alert(appleDevice
+      ? 'En Safari pulsa Compartir y luego “Agregar a pantalla de inicio”.'
+      : 'En Chrome abre el menú ⋮ y selecciona “Instalar aplicación” o “Agregar a pantalla principal”.');
+  };
   useEffect(() => {
     const changeSession = nextSession => {
       // Nunca reutilizamos el historial local de una persona en la sesión de otra.
@@ -623,12 +655,12 @@ function App() {
 
   if (showSplash) return <SplashScreen/>;
   if (!authReady) return <section className="login-screen"><div className="login-card"><p>Conectando con FTP - ODOMETRO…</p></div></section>;
-  if (!session) return <Login error={error} onLogin={async (email, password) => { setError(''); const { error } = await supabase.auth.signInWithPassword({ email, password }); if (error) setError(error.message); }} onDriverLogin={async (accessCode, pin) => { setError(''); try { const response=await fetch('https://idwyvmhfyfsklykxmcdm.supabase.co/functions/v1/driver-login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({accessCode,pin})}); const result=await response.json().catch(()=>({})); if(!response.ok||result?.error) return setError(result?.error||'No se pudo iniciar sesión.'); const {error: sessionError}=await supabase.auth.setSession(result.session); if(sessionError)setError(sessionError.message); } catch { setError('No se pudo conectar con el acceso de chofer.'); } }} onRegister={async (name, email, password) => { setError(''); const { data: result, error } = await supabase.auth.signUp({ email, password, options: { data: { full_name: name } } }); if (error) setError(error.message); else if (!result.session) setError('Revisa tu correo para confirmar la cuenta y luego ingresa.'); }} />;
+  if (!session) return <Login error={error} webAppInstalled={webAppInstalled} onInstall={installWebApp} onLogin={async (email, password) => { setError(''); const { error } = await supabase.auth.signInWithPassword({ email, password }); if (error) setError(error.message); }} onDriverLogin={async (accessCode, pin) => { setError(''); try { const response=await fetch('https://idwyvmhfyfsklykxmcdm.supabase.co/functions/v1/driver-login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({accessCode,pin})}); const result=await response.json().catch(()=>({})); if(!response.ok||result?.error) return setError(result?.error||'No se pudo iniciar sesión.'); const {error: sessionError}=await supabase.auth.setSession(result.session); if(sessionError)setError(sessionError.message); } catch { setError('No se pudo conectar con el acceso de chofer.'); } }} onRegister={async (name, email, password) => { setError(''); const { data: result, error } = await supabase.auth.signUp({ email, password, options: { data: { full_name: name } } }); if (error) setError(error.message); else if (!result.session) setError('Revisa tu correo para confirmar la cuenta y luego ingresa.'); }} />;
   return <>
     <DriverVehicleAssignment profile={profile} driverPreview={driverPreview} modal={modal}/>
     <KilometerInputGuard />
     <aside className="sidebar"><div className="company-name">FRUTOS TROPICALES<br/><span>EXPORT. PERÚ</span></div><div className="brand"><span className="brand-mark">F</span><span>FTP - ODOMETRO</span></div><nav>{nav.map(([key, icon, label]) => <button key={key} className={`nav-link ${view === key ? 'active' : ''}`} onClick={() => { setView(key); setModal(null); }}>{icon}<span>{label}</span></button>)}</nav><div className="sidebar-note">{session.user.email}<br/><small>{driverPreview?'Vista de chofer · Administración conservada':'Sesión segura · Administrador'}</small>{profile?.role==='admin'&&<button className="sidebar-preview" onClick={()=>{setDriverPreview(value=>!value);setView('dashboard');setModal(null);}}>{driverPreview?'↩ Volver a administrador':'◉ Vista de chofer'}</button>}<button className="sidebar-logout" onClick={logout}>↪ Salir</button></div></aside>
-    <main className={modal ? 'modal-open' : ''}>{error && <p className="sync-error">{error}</p>}<header><div><p className="eyebrow">FRUTOS TROPICALES EXPORT. PERÚ · CONTROL VEHICULAR</p><h1>{title}</h1></div><button className="mobile-logout" onClick={logout}>↪ Cerrar sesión</button></header>
+    <main className={modal ? 'modal-open' : ''}>{error && <p className="sync-error">{error}</p>}<header><div><p className="eyebrow">FRUTOS TROPICALES EXPORT. PERÚ · CONTROL VEHICULAR</p><h1>{title}</h1></div><div className="header-actions"><PwaInstallButton installed={webAppInstalled} onInstall={installWebApp}/><button className="mobile-logout" onClick={logout}>↪ Cerrar sesión</button></div></header>
       {view === 'dashboard' && <Dashboard data={data} profile={profile} driverPreview={driverPreview} km={tripsKm} permissions={profile?.role === 'driver' && !driverPreview ? driverPermissions : {departure:true,arrival:true}} driverName={profile?.role === 'driver' ? profile.full_name : ''} onGo={setView} onDeparture={() => setModal({type:'quickDeparture'})} onReturn={() => setModal({type:'quickReturn'})} onTripUpdate={record => update('trips',record)} tripForm={modal?.type === 'quickDeparture' ? <DepartureGpsRequired data={data} driverName={profile?.role === 'driver' ? profile.full_name : ''} driverId={profile?.role === 'driver' && !driverPreview ? profile.id : ''} assignedVehicleId={profile?.role === 'driver' && !driverPreview ? profile.permissions?.assignedVehicleId : ''} assignedVehicleLabel={profile?.role === 'driver' && !driverPreview ? profile.permissions?.assignedVehicleLabel : ''} onClose={() => setModal(null)} onSave={async record => { const saved={...record,...(window.departureEvidence||{}),departureDate:today(),departureTime:now()}; const registered=await update('trips',saved); if(registered){setModal(null);setSuccessMessage('Salida registrada correctamente.');} return registered; }} /> : modal?.type === 'quickReturn' ? <ArrivalSimple data={data} driverName={profile?.role === 'driver' && !driverPreview ? profile.full_name : ''} driverId={profile?.role === 'driver' && !driverPreview ? profile.id : ''} onClose={() => setModal(null)} onSave={async record => { const registered=await update('trips',{...record,returnDate:today(),returnTime:now()}); if(registered){setModal(null);setSuccessMessage('Llegada registrada correctamente.');} return registered; }} /> : null} />}
       {view === 'trips' && <List title="Historial de recorridos" text="Consulta, filtra y edita las salidas y llegadas registradas." hideAdd><Trips data={data} drivers={drivers} profile={profile} onEdit={record => setModal({type:'trip',record})} onDelete={record => remove('trips',record.id)} /></List>}
       {view === 'fuel' && <List title="Control de combustible" text={profile?.role === 'admin' && !driverPreview ? 'Revisa los comprobantes enviados por toda la flota.' : 'Envía tu comprobante y consulta los que ya registraste.'} onAdd={() => setModal({type:'fuel'})}><Fuel data={data} drivers={drivers} profile={profile} isAdmin={profile?.role === 'admin' && !driverPreview} onEdit={record => setModal({type:'fuel',record})} onDelete={record => remove('fuels',record.id)} /></List>}
@@ -645,7 +677,12 @@ function App() {
 
 function SplashScreen() { return <section className="splash-screen" aria-label="Bienvenida a FTP - ODOMETRO"><span className="splash-ftp" aria-hidden="true">FTP</span><div className="splash-orbit orbit-one"/><div className="splash-orbit orbit-two"/><div className="splash-logo"><span className="splash-leaf"/><span className="splash-mango">●</span></div><p className="splash-company">FRUTOS TROPICALES</p><h1>FTP - ODOMETRO</h1><p className="splash-subtitle">Control vehicular inteligente</p><span className="splash-loader"><i/></span></section>; }
 
-function Login({ onLogin, onDriverLogin, error }) {
+function PwaInstallButton({ installed, onInstall }) {
+  if (installed) return null;
+  return <button type="button" className="secondary pwa-install-button" onClick={onInstall}>▣ Instalar aplicación</button>;
+}
+
+function Login({ onLogin, onDriverLogin, error, webAppInstalled, onInstall }) {
   const adminAccess = new URLSearchParams(window.location.search).get('admin') === '1';
   const [driverMode] = useState(() => !adminAccess);
   const [rememberDriver, setRememberDriver] = useState(() => localStorage.getItem('rutacontrol_remember_driver') === 'true');
@@ -662,7 +699,7 @@ function Login({ onLogin, onDriverLogin, error }) {
     return onLogin(values.email.value, values.password.value);
   };
   const savedDriverCode = localStorage.getItem('rutacontrol_driver_code') || '';
-  return <section className="login-screen"><form className="login-card" onSubmit={submit}><div className="login-fruit">●</div><p className="eyebrow">FRUTOS TROPICALES EXPORT. PERÚ</p><h1>{driverMode?'Acceso de conductor':'Acceso administrativo'}</h1><p>{driverMode?'Ingresa el código y PIN entregados por el administrador.':'Ingresa con tu correo y contraseña de administrador.'}</p>{driverMode?<><label>Código de acceso</label><input name="accessCode" required autoFocus defaultValue={savedDriverCode} placeholder="Ejemplo: RGARCIA" pattern="[A-Za-z0-9_-]{4,20}"/><label>PIN de 6 números</label><input name="pin" required type="password" inputMode="numeric" pattern="\d{6}" maxLength="6" placeholder="••••••"/><label className="remember-driver"><input type="checkbox" checked={rememberDriver} onChange={event=>setRememberDriver(event.target.checked)}/> Recordar mi código en este equipo</label></>:<><label>Correo electrónico</label><input name="email" type="email" required autoFocus placeholder="correo@empresa.com"/><label>Contraseña</label><input name="password" type="password" required minLength="6" placeholder="Mínimo 6 caracteres"/></>}<p className="login-error">{error}</p><button className="primary">{driverMode?'Ingresar como conductor':'Ingresar como administrador'}</button>{!driverMode&&<button type="button" className="secondary" onClick={()=>window.location.assign(window.location.pathname)}>Volver al acceso de conductor</button>}<small>Acceso protegido por Supabase.</small></form></section>;
+  return <section className="login-screen"><form className="login-card" onSubmit={submit}><div className="login-fruit">●</div><p className="eyebrow">FRUTOS TROPICALES EXPORT. PERÚ</p><h1>{driverMode?'Acceso de conductor':'Acceso administrativo'}</h1><p>{driverMode?'Ingresa el código y PIN entregados por el administrador.':'Ingresa con tu correo y contraseña de administrador.'}</p>{driverMode?<><label>Código de acceso</label><input name="accessCode" required autoFocus defaultValue={savedDriverCode} placeholder="Ejemplo: RGARCIA" pattern="[A-Za-z0-9_-]{4,20}"/><label>PIN de 6 números</label><input name="pin" required type="password" inputMode="numeric" pattern="\d{6}" maxLength="6" placeholder="••••••"/><label className="remember-driver"><input type="checkbox" checked={rememberDriver} onChange={event=>setRememberDriver(event.target.checked)}/> Recordar mi código en este equipo</label></>:<><label>Correo electrónico</label><input name="email" type="email" required autoFocus placeholder="correo@empresa.com"/><label>Contraseña</label><input name="password" type="password" required minLength="6" placeholder="Mínimo 6 caracteres"/></>}<p className="login-error">{error}</p><button className="primary">{driverMode?'Ingresar como conductor':'Ingresar como administrador'}</button><PwaInstallButton installed={webAppInstalled} onInstall={onInstall}/>{!driverMode&&<button type="button" className="secondary" onClick={()=>window.location.assign(window.location.pathname)}>Volver al acceso de conductor</button>}<small>Acceso protegido por Supabase.</small></form></section>;
 }
 function Dashboard({ data, profile, driverPreview, permissions, onDeparture, onReturn, onTripUpdate, tripForm }) { return <>{(permissions.departure||permissions.arrival)&&<MangoQuickActions permissions={permissions} onDeparture={onDeparture} onReturn={onReturn}/>} {tripForm}<RouteMap data={data} profile={profile} driverPreview={driverPreview} onUpdate={onTripUpdate}/></>; }
 
@@ -1807,7 +1844,7 @@ createRoot(document.getElementById('root')).render(<App />);
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', async () => {
     try {
-      const workerVersion = 'v103';
+      const workerVersion = 'v104';
       const workerUrl = `./sw.js?v=${workerVersion}`;
       const previous = await navigator.serviceWorker.getRegistration('./');
       const needsReplacement = Boolean(previous && !previous.active?.scriptURL.includes(`v=${workerVersion}`));
