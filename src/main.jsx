@@ -1958,7 +1958,7 @@ createRoot(document.getElementById('root')).render(<App />);
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', async () => {
     try {
-    const workerVersion = 'v109';
+    const workerVersion = 'v110';
       const workerUrl = `./sw.js?v=${workerVersion}`;
       const previous = await navigator.serviceWorker.getRegistration('./');
       const needsReplacement = Boolean(previous && !previous.active?.scriptURL.includes(`v=${workerVersion}`));
