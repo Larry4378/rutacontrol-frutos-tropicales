@@ -31,6 +31,21 @@ test('el formulario espera la muestra GPS más precisa y descarta la primera apr
   assert.equal(cleared, true);
 });
 
+test('usa la lectura inmediata de Chrome cuando el seguimiento continuo no responde', async () => {
+  let currentRequested = false;
+  const geolocation = {
+    watchPosition() { return 11; },
+    getCurrentPosition(success) {
+      currentRequested = true;
+      setTimeout(() => success(gpsPosition(18)), 1);
+    },
+    clearWatch() {},
+  };
+  const position = await getPreciseGpsPosition(geolocation, { timeoutMs: 50, targetAccuracyMeters: 30 });
+  assert.equal(currentRequested, true);
+  assert.equal(position.coords.accuracy, 18);
+});
+
 test('rechaza una ubicación que continúa demasiado imprecisa', async () => {
   const geolocation = {
     watchPosition(success) {

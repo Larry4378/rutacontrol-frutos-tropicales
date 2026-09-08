@@ -37,6 +37,18 @@ export const getPreciseGpsPosition = (geolocation, {
     cleanup();
     callback(value);
   };
+  const keepPosition = position => {
+    if (finished) return;
+    const accuracy = Number(position?.coords?.accuracy);
+    if (!Number.isFinite(accuracy)) return;
+    if (!bestPosition || accuracy < Number(bestPosition.coords.accuracy)) bestPosition = position;
+    if (accuracy <= targetAccuracyMeters) finish(resolve, position);
+  };
+  const keepError = error => {
+    if (finished) return;
+    lastError = error;
+    if (error?.code === 1) finish(reject, error);
+  };
   const timerId = globalThis.setTimeout(() => {
     const accuracy = Number(bestPosition?.coords?.accuracy);
     if (bestPosition && Number.isFinite(accuracy) && accuracy <= maxAccuracyMeters) {
@@ -49,15 +61,12 @@ export const getPreciseGpsPosition = (geolocation, {
     finish(reject, error);
   }, timeoutMs);
 
-  watchId = geolocation.watchPosition(position => {
-    const accuracy = Number(position?.coords?.accuracy);
-    if (!Number.isFinite(accuracy)) return;
-    if (!bestPosition || accuracy < Number(bestPosition.coords.accuracy)) bestPosition = position;
-    if (accuracy <= targetAccuracyMeters) finish(resolve, position);
-  }, error => {
-    lastError = error;
-    if (error?.code === 1) finish(reject, error);
-  }, { enableHighAccuracy: true, timeout: timeoutMs, maximumAge: 0 });
+  const gpsOptions = { enableHighAccuracy: true, timeout: timeoutMs, maximumAge: 0 };
+  watchId = geolocation.watchPosition(keepPosition, keepError, gpsOptions);
+  // Algunos Chrome entregan la primera coordenada con getCurrentPosition pero
+  // demoran o fallan al iniciar watchPosition. Ejecutamos ambos y conservamos
+  // la muestra más precisa, sin volver a aceptar ubicaciones lejanas.
+  geolocation.getCurrentPosition?.(keepPosition, keepError, gpsOptions);
 });
 
 export const gpsDistanceMeters = (previous, point) => {
