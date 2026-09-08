@@ -13,6 +13,8 @@ test('el conductor del login aparece por defecto y el formulario permite selecci
   assert.match(departureSource, /driverProfileId: driverId/);
   assert.match(departureSource, /<label>Conductor asignado<\/label><select required value=\{form\.driverProfileId/);
   assert.match(departureSource, /drivers\.map\(driver => <option key=\{driver\.id\} value=\{driver\.id\}>\{driver\.full_name\}/);
+  assert.match(mainSource, /assignmentReady=\{profileReady && vehiclesReady\}/);
+  assert.match(mainSource, /disabled=\{!ready\}/);
 });
 
 test('la identidad autenticada conserva la propiedad y el GPS del recorrido', () => {

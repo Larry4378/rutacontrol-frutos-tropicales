@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   GPS_TRACKING_MAX_ACCURACY_METERS,
+  getPreciseGpsPosition,
   gpsDistanceMeters,
   gpsPointFromLiveRow,
   isGpsPointFresh,
@@ -9,6 +10,40 @@ import {
   stabilizeGpsPoint,
   stabilizeLiveGpsRow,
 } from '../src/gps.js';
+
+const gpsPosition = (accuracy, latitude = -5.2068, longitude = -80.6339) => ({
+  coords: { accuracy, latitude, longitude },
+});
+
+test('el formulario espera la muestra GPS más precisa y descarta la primera aproximada', async () => {
+  let cleared = false;
+  const geolocation = {
+    watchPosition(success) {
+      setTimeout(() => success(gpsPosition(450, -5.2066, -80.6382)), 1);
+      setTimeout(() => success(gpsPosition(12)), 4);
+      return 7;
+    },
+    clearWatch(id) { cleared = id === 7; },
+  };
+  const position = await getPreciseGpsPosition(geolocation, { timeoutMs: 50, targetAccuracyMeters: 20 });
+  assert.equal(position.coords.accuracy, 12);
+  assert.equal(position.coords.longitude, -80.6339);
+  assert.equal(cleared, true);
+});
+
+test('rechaza una ubicación que continúa demasiado imprecisa', async () => {
+  const geolocation = {
+    watchPosition(success) {
+      setTimeout(() => success(gpsPosition(320)), 1);
+      return 9;
+    },
+    clearWatch() {},
+  };
+  await assert.rejects(
+    getPreciseGpsPosition(geolocation, { timeoutMs: 8, maxAccuracyMeters: 80 }),
+    error => error.code === 4 && error.accuracy === 320,
+  );
+});
 
 const base = {
   lat: -11.033,

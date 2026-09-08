@@ -60,6 +60,20 @@ test('las fechas de salida y llegada permiten hoy y los dos días anteriores', (
   assert.match(arrivalSource, /type="date" min=\{dateDaysAgo\(2\)\} max=\{today\(\)\}/);
   assert.doesNotMatch(departureSource, /departureDate: today\(\), departureTime: now\(\), status/);
   assert.match(arrivalSource, /returnDate: form\.returnDate/);
+  const appSource = mainSource.slice(mainSource.indexOf('function App()'), mainSource.indexOf('function SplashScreen'));
+  assert.doesNotMatch(appSource, /departureDate:today\(\),departureTime:now\(\)/);
+  assert.doesNotMatch(appSource, /returnDate:today\(\),returnTime:now\(\)/);
+});
+
+test('el GPS de los formularios espera una muestra precisa antes de resolver la dirección', () => {
+  const departureStart = mainSource.indexOf('function DepartureGpsRequired');
+  const arrivalStart = mainSource.indexOf('function ArrivalSimple');
+  const departureSource = mainSource.slice(departureStart, arrivalStart);
+  const arrivalSource = mainSource.slice(arrivalStart);
+  assert.match(departureSource, /getPreciseGpsPosition\(navigator\.geolocation\)/);
+  assert.match(arrivalSource, /getPreciseGpsPosition\(navigator\.geolocation\)/);
+  assert.match(departureSource, /zoom=17&addressdetails=1&accept-language=es/);
+  assert.match(arrivalSource, /zoom=17&addressdetails=1&accept-language=es/);
 });
 
 test('si el GPS falla muestra un aviso nativo para activar la ubicación', () => {

@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { createWorker } from 'tesseract.js';
 import L from 'leaflet';
 import { supabase, SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from './supabase';
-import { GPS_TRACKING_MAX_ACCURACY_METERS, gpsDistanceMeters, isGpsPointFresh, shouldKeepGpsPoint, stabilizeGpsPoint, stabilizeLiveGpsRow } from './gps.js';
+import { GPS_TRACKING_MAX_ACCURACY_METERS, getPreciseGpsPosition, gpsDistanceMeters, isGpsPointFresh, shouldKeepGpsPoint, stabilizeGpsPoint, stabilizeLiveGpsRow } from './gps.js';
 import { addNativeLocationListener, getNativeLocationStatus, isNativeAndroidLocation, startNativeLocationTracking, stopNativeLocationTracking } from './native-location.js';
 import { arrivalSubmissionError, isPositiveKilometer, normalizeKilometerInput } from './odometer-form.js';
 import { buildTripExportCsv, buildTripExportRows } from './trip-export.js';
@@ -307,6 +307,7 @@ function App() {
   const [successMessage, setSuccessMessage] = useState('');
   const [profile, setProfile] = useState(null);
   const [profileReady, setProfileReady] = useState(false);
+  const [vehiclesReady, setVehiclesReady] = useState(false);
   const [drivers, setDrivers] = useState([]);
   const [tripDrivers, setTripDrivers] = useState([]);
   const [driverPreview, setDriverPreview] = useState(false);
@@ -357,6 +358,7 @@ function App() {
       setProfile(null);
       setDrivers([]);
       setProfileReady(false);
+      setVehiclesReady(false);
       setSession(nextSession);
     };
     supabase.auth.getSession().then(({ data: { session } }) => { changeSession(session); setAuthReady(true); });
@@ -367,6 +369,7 @@ function App() {
     if (!session) return;
     supabase.from('vehicles').select('id, plate, brand, model, vehicle_type, current_km, ownership, status').order('plate')
       .then(({ data: vehicles, error: loadError }) => {
+        setVehiclesReady(true);
         if (loadError) return setError(`No se pudieron cargar los vehículos: ${loadError.message}`);
         setData(previous => ({ ...previous, vehicles: vehicles.map(vehicle => ({ ...vehicle, km: vehicle.current_km })) }));
       });
@@ -677,7 +680,7 @@ function App() {
     <KilometerInputGuard />
     <aside className="sidebar"><div className="company-name">FRUTOS TROPICALES<br/><span>EXPORT. PERÚ</span></div><div className="brand"><span className="brand-mark">F</span><span>FTP - ODOMETRO</span></div><nav>{nav.map(([key, icon, label]) => <button key={key} className={`nav-link ${view === key ? 'active' : ''}`} onClick={() => { setView(key); setModal(null); }}>{icon}<span>{label}</span></button>)}</nav><div className="sidebar-note">{session.user.email}<br/><small>{driverPreview?'Vista de chofer · Administración conservada':'Sesión segura · Administrador'}</small>{profile?.role==='admin'&&<button className="sidebar-preview" onClick={()=>{setDriverPreview(value=>!value);setView('dashboard');setModal(null);}}>{driverPreview?'↩ Volver a administrador':'◉ Vista de chofer'}</button>}<button className="sidebar-logout" onClick={logout}>↪ Salir</button></div></aside>
     <main className={modal ? 'modal-open' : ''}>{error && <p className="sync-error">{error}</p>}<header><div><p className="eyebrow">FRUTOS TROPICALES EXPORT. PERÚ · CONTROL VEHICULAR</p><h1>{title}</h1></div><div className="header-actions"><PwaInstallButton installed={webAppInstalled} onInstall={installWebApp}/><button className="mobile-logout" onClick={logout}>↪ Cerrar sesión</button></div></header>
-      {view === 'dashboard' && <Dashboard data={data} profile={profile} driverPreview={driverPreview} km={tripsKm} permissions={profile?.role === 'driver' && !driverPreview ? driverPermissions : {departure:true,arrival:true}} driverName={profile?.role === 'driver' ? profile.full_name : ''} onGo={setView} onDeparture={() => setModal({type:'quickDeparture'})} onReturn={() => setModal({type:'quickReturn'})} onTripUpdate={record => update('trips',record)} tripForm={modal?.type === 'quickDeparture' ? <DepartureGpsRequired data={data} drivers={tripDrivers} driverName={profile?.role === 'driver' ? profile.full_name : ''} driverId={profile?.role === 'driver' && !driverPreview ? profile.id : ''} assignedVehicleId={profile?.role === 'driver' && !driverPreview ? profile.permissions?.assignedVehicleId : ''} assignedVehicleLabel={profile?.role === 'driver' && !driverPreview ? profile.permissions?.assignedVehicleLabel : ''} onClose={() => setModal(null)} onSave={async record => { const saved={...record,...(window.departureEvidence||{}),departureDate:today(),departureTime:now()}; const registered=await update('trips',saved); if(registered){setModal(null);setSuccessMessage('Salida registrada correctamente.');} return registered; }} /> : modal?.type === 'quickReturn' ? <ArrivalSimple data={data} driverName={profile?.role === 'driver' && !driverPreview ? profile.full_name : ''} driverId={profile?.role === 'driver' && !driverPreview ? profile.id : ''} onClose={() => setModal(null)} onSave={async record => { const registered=await update('trips',{...record,returnDate:today(),returnTime:now()}); if(registered){setModal(null);setSuccessMessage('Llegada registrada correctamente.');} return registered; }} /> : null} />}
+      {view === 'dashboard' && <Dashboard data={data} profile={profile} driverPreview={driverPreview} km={tripsKm} permissions={profile?.role === 'driver' && !driverPreview ? driverPermissions : {departure:true,arrival:true}} assignmentReady={profileReady && vehiclesReady} driverName={profile?.role === 'driver' ? profile.full_name : ''} onGo={setView} onDeparture={() => setModal({type:'quickDeparture'})} onReturn={() => setModal({type:'quickReturn'})} onTripUpdate={record => update('trips',record)} tripForm={modal?.type === 'quickDeparture' ? <DepartureGpsRequired data={data} drivers={tripDrivers} driverName={profile?.role === 'driver' ? profile.full_name : ''} driverId={profile?.role === 'driver' && !driverPreview ? profile.id : ''} assignedVehicleId={profile?.role === 'driver' && !driverPreview ? profile.permissions?.assignedVehicleId : ''} assignedVehicleLabel={profile?.role === 'driver' && !driverPreview ? profile.permissions?.assignedVehicleLabel : ''} onClose={() => setModal(null)} onSave={async record => { const saved={...record,...(window.departureEvidence||{}),departureTime:now()}; const registered=await update('trips',saved); if(registered){setModal(null);setSuccessMessage('Salida registrada correctamente.');} return registered; }} /> : modal?.type === 'quickReturn' ? <ArrivalSimple data={data} driverName={profile?.role === 'driver' && !driverPreview ? profile.full_name : ''} driverId={profile?.role === 'driver' && !driverPreview ? profile.id : ''} onClose={() => setModal(null)} onSave={async record => { const registered=await update('trips',{...record,returnTime:now()}); if(registered){setModal(null);setSuccessMessage('Llegada registrada correctamente.');} return registered; }} /> : null} />}
       {view === 'trips' && <List title="Historial de recorridos" text="Consulta, filtra y edita las salidas y llegadas registradas." hideAdd><Trips data={data} drivers={tripHistoryDrivers} profile={profile} onEdit={record => setModal({type:'trip',record})} onDelete={record => remove('trips',record.id)} /></List>}
       {view === 'fuel' && <List title="Control de combustible" text={profile?.role === 'admin' && !driverPreview ? 'Revisa los comprobantes enviados por toda la flota.' : 'Envía tu comprobante y consulta los que ya registraste.'} onAdd={() => setModal({type:'fuel'})}><Fuel data={data} drivers={drivers} profile={profile} isAdmin={profile?.role === 'admin' && !driverPreview} onEdit={record => setModal({type:'fuel',record})} onDelete={record => remove('fuels',record.id)} /></List>}
       {view === 'vehicles' && <List title="Vehículos" text="Administra placa, odómetro y estado." onAdd={() => setModal({type:'vehicle'})}><Vehicles data={data} onEdit={record => setModal({type:'vehicle',record})} onDelete={record => remove('vehicles',record)} /></List>}
@@ -717,7 +720,7 @@ function Login({ onLogin, onDriverLogin, error, webAppInstalled, onInstall }) {
   const savedDriverCode = localStorage.getItem('rutacontrol_driver_code') || '';
   return <section className="login-screen"><form className="login-card" onSubmit={submit}><div className="login-fruit">●</div><p className="eyebrow">FRUTOS TROPICALES EXPORT. PERÚ</p><h1>{driverMode?'Acceso de conductor':'Acceso administrativo'}</h1><p>{driverMode?'Ingresa el código y PIN entregados por el administrador.':'Ingresa con tu correo y contraseña de administrador.'}</p>{driverMode?<><label>Código de acceso</label><input name="accessCode" required autoFocus defaultValue={savedDriverCode} placeholder="Ejemplo: RGARCIA" pattern="[A-Za-z0-9_-]{4,20}"/><label>PIN de 6 números</label><input name="pin" required type="password" inputMode="numeric" pattern="\d{6}" maxLength="6" placeholder="••••••"/><label className="remember-driver"><input type="checkbox" checked={rememberDriver} onChange={event=>setRememberDriver(event.target.checked)}/> Recordar mi código en este equipo</label></>:<><label>Correo electrónico</label><input name="email" type="email" required autoFocus placeholder="correo@empresa.com"/><label>Contraseña</label><input name="password" type="password" required minLength="6" placeholder="Mínimo 6 caracteres"/></>}<p className="login-error">{error}</p><button className="primary">{driverMode?'Ingresar como conductor':'Ingresar como administrador'}</button><PwaInstallButton installed={webAppInstalled} onInstall={onInstall}/>{!driverMode&&<button type="button" className="secondary" onClick={()=>window.location.assign(window.location.pathname)}>Volver al acceso de conductor</button>}<small>Acceso protegido por Supabase.</small></form></section>;
 }
-function Dashboard({ data, profile, driverPreview, permissions, onDeparture, onReturn, onTripUpdate, tripForm }) { return <>{(permissions.departure||permissions.arrival)&&<MangoQuickActions permissions={permissions} onDeparture={onDeparture} onReturn={onReturn}/>} {tripForm}<RouteMap data={data} profile={profile} driverPreview={driverPreview} onUpdate={onTripUpdate}/></>; }
+function Dashboard({ data, profile, driverPreview, permissions, assignmentReady, onDeparture, onReturn, onTripUpdate, tripForm }) { return <>{(permissions.departure||permissions.arrival)&&<MangoQuickActions permissions={permissions} ready={assignmentReady} onDeparture={onDeparture} onReturn={onReturn}/>} {tripForm}<RouteMap data={data} profile={profile} driverPreview={driverPreview} onUpdate={onTripUpdate}/></>; }
 
 function MaintenanceAlerts({data, profile, driverPreview, onGo}) {
   const alerts = useMemo(() => {
@@ -749,7 +752,7 @@ function MaintenanceAlerts({data, profile, driverPreview, onGo}) {
   const kmText = value => Number(value).toLocaleString('es-PE', {maximumFractionDigits: 1});
   return <section className="panel maintenance-alerts"><div className="section-head"><div><p className="eyebrow">MANTENIMIENTO</p><h2>Alertas de mantenimiento</h2><p>Se activan únicamente por el próximo kilometraje programado.</p></div><button className="text-button" onClick={() => onGo('maintenance')}>Ver mantenimiento</button></div><div className="maintenance-alert-list">{alerts.map(alert => { const detail=alert.kmRemaining <= 0 ? `Kilometraje alcanzado: ${kmText(alert.kmNow)} km de ${kmText(alert.maintenance.nextKm)} km` : `Faltan ${kmText(alert.kmRemaining)} km: ${kmText(alert.kmNow)} de ${kmText(alert.maintenance.nextKm)} km`; return <article key={alert.vehicle.id} className={`maintenance-alert ${alert.due ? 'due' : 'soon'}`}><span className="maintenance-alert-icon">{alert.due ? '!' : '◷'}</span><div><b>{alert.vehicle.plate} · {alert.vehicle.brand} {alert.vehicle.model}</b><p>{alert.due ? 'Mantenimiento pendiente.' : 'Mantenimiento próximo.'} {detail}</p></div></article>; })}</div></section>;
 }
-function MangoQuickActions({permissions,onDeparture,onReturn}) { return <section className="mango-actions"><div><p className="eyebrow">ACCESO RÁPIDO</p><h2>¿El vehículo sale o llega?</h2><p>Registra el movimiento con un toque.</p></div><div className="mango-buttons">{permissions.departure&&<button className="mango-button departure" onClick={onDeparture}><i className="mango-fruit"/><span>Registrar<br/><b>Salida</b></span></button>}{permissions.arrival&&<button className="mango-button arrival" onClick={onReturn}><i className="mango-fruit"/><span>Registrar<br/><b>Llegada</b></span></button>}</div></section>; }
+function MangoQuickActions({permissions,ready,onDeparture,onReturn}) { return <section className="mango-actions"><div><p className="eyebrow">ACCESO RÁPIDO</p><h2>¿El vehículo sale o llega?</h2><p>{ready?'Registra el movimiento con un toque.':'Cargando tu conductor y vehículo asignado…'}</p></div><div className="mango-buttons">{permissions.departure&&<button className="mango-button departure" disabled={!ready} onClick={onDeparture}><i className="mango-fruit"/><span>Registrar<br/><b>Salida</b></span></button>}{permissions.arrival&&<button className="mango-button arrival" disabled={!ready} onClick={onReturn}><i className="mango-fruit"/><span>Registrar<br/><b>Llegada</b></span></button>}</div></section>; }
 function RouteMap({ data, profile, driverPreview, onUpdate }) {
   const active = data.trips.find(isTripOpen);
   // El usuario que abrió el viaje es responsable de transmitir el GPS, aunque
@@ -1681,7 +1684,7 @@ function DepartureGpsRequired({ data, drivers = [], driverName = '', driverId = 
     }
     setGpsLoading(true);
     setStatus('Obteniendo ubicación y dirección…');
-    navigator.geolocation.getCurrentPosition(async position => {
+    getPreciseGpsPosition(navigator.geolocation).then(async position => {
       const { latitude, longitude, accuracy } = position.coords;
       // El primer punto del recorrido es el origen real. Se conserva para
       // impedir que una llegada se confirme en la misma ubicación.
@@ -1699,10 +1702,10 @@ function DepartureGpsRequired({ data, drivers = [], driverName = '', driverId = 
       setGpsReady(true);
       setGpsLoading(false);
       setStatus('Ubicación GPS registrada. Buscando la dirección…');
-      try { const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}`); const place = await response.json(); origin = place.display_name || origin; } catch {}
+      try { const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=17&addressdetails=1&accept-language=es&lat=${latitude}&lon=${longitude}`); const place = await response.json(); origin = place.display_name || origin; } catch {}
       change('origin', origin);
-      setStatus('Origen GPS registrado correctamente.');
-    }, error => {
+      setStatus(`Origen GPS registrado con precisión aproximada de ${Math.round(accuracy)} m.`);
+    }).catch(error => {
       setGpsReady(false);
       setGpsLoading(false);
       if (error?.code !== 1 && gpsAttempts.current < 2) {
@@ -1713,11 +1716,13 @@ function DepartureGpsRequired({ data, drivers = [], driverName = '', driverId = 
       }
       setStatus(error?.code === 1
         ? 'Chrome tiene bloqueada la ubicación. Pulsa el candado del navegador, permite “Ubicación” y vuelve a abrir este formulario.'
-        : 'No se pudo obtener el GPS automáticamente. Activa la ubicación del celular y vuelve a abrir este formulario.');
+        : error?.accuracy
+          ? `La ubicación solo alcanzó una precisión de ±${error.accuracy} m. Abre el formulario desde un celular con el GPS activado.`
+          : 'No se pudo obtener el GPS automáticamente. Activa la ubicación del celular y vuelve a abrir este formulario.');
       window.alert(error?.code === 1
         ? 'Chrome tiene bloqueada la ubicación. Pulsa el candado o ajustes del sitio, permite “Ubicación” y vuelve a abrir “Registrar salida”.'
         : 'Activa la ubicación (GPS) de tu celular. Después vuelve a “Registrar salida”.');
-    }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+    });
   };
   useEffect(() => {
     if (pendingTrip || autoGpsRequested.current) return;
@@ -1774,7 +1779,7 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
     setGpsReady(false);
     setGpsLoading(true);
     setGpsStatus('Obteniendo ubicación y dirección…');
-    navigator.geolocation.getCurrentPosition(async position => {
+    getPreciseGpsPosition(navigator.geolocation).then(async position => {
       const { latitude, longitude, accuracy } = position.coords;
       const arrivalPoint = {
         lat: latitude,
@@ -1792,13 +1797,13 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
       setGpsStatus('Ubicación GPS registrada. Buscando la dirección…');
       let destination = coordinates;
       try {
-        const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}`);
+        const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=17&addressdetails=1&accept-language=es&lat=${latitude}&lon=${longitude}`);
         const place = await response.json();
         destination = place.display_name || destination;
       } catch {}
       change('destination', destination);
-      setGpsStatus('Destino GPS registrado correctamente.');
-    }, error => {
+      setGpsStatus(`Destino GPS registrado con precisión aproximada de ${Math.round(accuracy)} m.`);
+    }).catch(error => {
       setGpsReady(false);
       setGpsLoading(false);
       if (error?.code !== 1 && gpsAttempts.current < 2) {
@@ -1809,6 +1814,8 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
       }
       const message = error?.code === 1
         ? 'Chrome tiene bloqueada la ubicación. Pulsa el candado del navegador, permite “Ubicación” y vuelve a abrir este formulario.'
+        : error?.accuracy
+          ? `La ubicación solo alcanzó una precisión de ±${error.accuracy} m. Abre el formulario desde un celular con el GPS activado.`
         : error?.code === 3
           ? 'El GPS demoró demasiado después de dos intentos automáticos. Activa la ubicación y vuelve a abrir este formulario.'
           : 'No se pudo obtener la ubicación. Activa el GPS del equipo y vuelve a abrir este formulario.';
@@ -1817,7 +1824,7 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
       window.alert(error?.code === 1
         ? 'Chrome tiene bloqueada la ubicación. Pulsa el candado o ajustes del sitio, permite “Ubicación” y vuelve a abrir “Registrar llegada”.'
         : 'Activa la ubicación (GPS) de tu celular. Después vuelve a abrir “Registrar llegada”.');
-    }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+    });
   };
   useEffect(() => {
     if (!active.length || autoGpsRequested.current) return;
@@ -1931,7 +1938,7 @@ createRoot(document.getElementById('root')).render(<App />);
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', async () => {
     try {
-    const workerVersion = 'v106';
+    const workerVersion = 'v107';
       const workerUrl = `./sw.js?v=${workerVersion}`;
       const previous = await navigator.serviceWorker.getRegistration('./');
       const needsReplacement = Boolean(previous && !previous.active?.scriptURL.includes(`v=${workerVersion}`));

@@ -2,9 +2,63 @@ export const GPS_TRACKING_MAX_ACCURACY_METERS = 18;
 export const GPS_TRACKING_MIN_INTERVAL_MS = 1000;
 export const GPS_TRACKING_MAX_SPEED_MPS = 45;
 export const GPS_LIVE_STALE_AFTER_MS = 15_000;
+export const GPS_FORM_TARGET_ACCURACY_METERS = 20;
+export const GPS_FORM_MAX_ACCURACY_METERS = 80;
 
 const finite = value => Number.isFinite(Number(value));
 const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
+
+// La primera lectura del navegador suele venir de la red y puede ubicar al
+// usuario en otro sector. Conservamos varias muestras durante unos segundos y
+// usamos la más precisa que entregue el equipo.
+export const getPreciseGpsPosition = (geolocation, {
+  timeoutMs = 10_000,
+  targetAccuracyMeters = GPS_FORM_TARGET_ACCURACY_METERS,
+  maxAccuracyMeters = GPS_FORM_MAX_ACCURACY_METERS,
+} = {}) => new Promise((resolve, reject) => {
+  if (!geolocation?.watchPosition || !geolocation?.clearWatch) {
+    const error = new Error('Este navegador no permite GPS.');
+    error.code = 0;
+    reject(error);
+    return;
+  }
+
+  let bestPosition = null;
+  let lastError = null;
+  let watchId = null;
+  let finished = false;
+  const cleanup = () => {
+    globalThis.clearTimeout(timerId);
+    if (watchId !== null) geolocation.clearWatch(watchId);
+  };
+  const finish = (callback, value) => {
+    if (finished) return;
+    finished = true;
+    cleanup();
+    callback(value);
+  };
+  const timerId = globalThis.setTimeout(() => {
+    const accuracy = Number(bestPosition?.coords?.accuracy);
+    if (bestPosition && Number.isFinite(accuracy) && accuracy <= maxAccuracyMeters) {
+      finish(resolve, bestPosition);
+      return;
+    }
+    const error = new Error(lastError?.message || 'El GPS no alcanzó una precisión suficiente.');
+    error.code = lastError?.code || 4;
+    error.accuracy = Number.isFinite(accuracy) ? Math.round(accuracy) : null;
+    finish(reject, error);
+  }, timeoutMs);
+
+  watchId = geolocation.watchPosition(position => {
+    const accuracy = Number(position?.coords?.accuracy);
+    if (!Number.isFinite(accuracy)) return;
+    if (!bestPosition || accuracy < Number(bestPosition.coords.accuracy)) bestPosition = position;
+    if (accuracy <= targetAccuracyMeters) finish(resolve, position);
+  }, error => {
+    lastError = error;
+    if (error?.code === 1) finish(reject, error);
+  }, { enableHighAccuracy: true, timeout: timeoutMs, maximumAge: 0 });
+});
 
 export const gpsDistanceMeters = (previous, point) => {
   const rad = value => value * Math.PI / 180;
