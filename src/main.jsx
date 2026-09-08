@@ -1663,6 +1663,7 @@ function DepartureGpsRequired({ data, drivers = [], driverName = '', driverId = 
   const [gpsLoading, setGpsLoading] = useState(true);
   const [clock, setClock] = useState(now());
   const [photoSelected, setPhotoSelected] = useState(false);
+  const [dateError, setDateError] = useState('');
   const autoGpsRequested = useRef(false);
   const gpsAttempts = useRef(0);
   const assignedVehicle = data.vehicles.find(vehicle => String(vehicle.id) === String(assignedVehicleId));
@@ -1673,6 +1674,12 @@ function DepartureGpsRequired({ data, drivers = [], driverName = '', driverId = 
     (form.vehicleId && String(trip.vehicleId || '') === String(form.vehicleId))
   ));
   const change = (key, value) => setForm(current => ({ ...current, [key]: value }));
+  useEffect(() => {
+    if (form.departureDate && !isRecentTripDate(form.departureDate)) {
+      setDateError('Solo puedes seleccionar hoy o los dos días anteriores.');
+      setForm(current => ({ ...current, departureDate: today() }));
+    }
+  }, [form.departureDate]);
   const selectDriver = value => {
     const selected = drivers.find(driver => String(driver.id) === String(value));
     setForm(current => ({ ...current, driverProfileId: value, driver: selected?.full_name || '' }));
@@ -1771,11 +1778,18 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
   const [photoSelected, setPhotoSelected] = useState(false);
   const [saving, setSaving] = useState(false);
   const [submitError, setSubmitError] = useState('');
+  const [dateError, setDateError] = useState('');
   const [clock, setClock] = useState(now());
   const autoGpsRequested = useRef(false);
   const gpsAttempts = useRef(0);
   const trip = active.find(item => item.id === form.tripId);
   const change = (key, value) => setForm(current => ({ ...current, [key]: value }));
+  useEffect(() => {
+    if (form.returnDate && !isRecentTripDate(form.returnDate)) {
+      setDateError('Solo puedes seleccionar hoy o los dos días anteriores.');
+      setForm(current => ({ ...current, returnDate: today() }));
+    }
+  }, [form.returnDate]);
   useEffect(() => { if (active.length === 1) change('tripId', active[0].id); }, [active.length, active[0]?.id]);
   useEffect(() => {
     const timer = setInterval(() => {
@@ -1958,7 +1972,7 @@ createRoot(document.getElementById('root')).render(<App />);
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', async () => {
     try {
-    const workerVersion = 'v110';
+    const workerVersion = 'v111';
       const workerUrl = `./sw.js?v=${workerVersion}`;
       const previous = await navigator.serviceWorker.getRegistration('./');
       const needsReplacement = Boolean(previous && !previous.active?.scriptURL.includes(`v=${workerVersion}`));

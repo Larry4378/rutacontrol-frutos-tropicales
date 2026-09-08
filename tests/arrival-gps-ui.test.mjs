@@ -58,6 +58,8 @@ test('las fechas de salida y llegada permiten hoy y los dos días anteriores', (
   const arrivalSource = mainSource.slice(arrivalStart);
   assert.match(departureSource, /type="date" min=\{dateDaysAgo\(2\)\} max=\{today\(\)\}/);
   assert.match(arrivalSource, /type="date" min=\{dateDaysAgo\(2\)\} max=\{today\(\)\}/);
+  assert.match(departureSource, /form\.departureDate && !isRecentTripDate\(form\.departureDate\)/);
+  assert.match(arrivalSource, /form\.returnDate && !isRecentTripDate\(form\.returnDate\)/);
   assert.doesNotMatch(departureSource, /departureDate: today\(\), departureTime: now\(\), status/);
   assert.match(arrivalSource, /returnDate: form\.returnDate/);
   const appSource = mainSource.slice(mainSource.indexOf('function App()'), mainSource.indexOf('function SplashScreen'));

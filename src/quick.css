@@ -25,6 +25,7 @@
 .odometer-photo-preview{flex-basis:100%;margin:4px 0 0;padding:8px;border:1px solid #d7e7c4;border-radius:10px;background:#f8fbf4}.odometer-photo-preview img{display:block;width:100%;max-height:300px;object-fit:contain;border-radius:7px;background:#172119}.odometer-photo-preview figcaption{margin-top:7px;color:#526456;font:600 11px "DM Sans";text-align:center}
 .quick-departure-modal .plate-capture{display:none}
 .field-help,.km-correction{display:none}
+.field-error{display:block;color:#b42318;font-size:.8rem;margin-top:.3rem}
 .trip-filters{padding:14px;background:#fffffff2;border:1px solid var(--line);border-radius:11px}
 .trip-filters input,.trip-filters select{width:auto;min-width:150px;flex:1}
 .trip-filters input:first-child{min-width:240px;flex:2}
