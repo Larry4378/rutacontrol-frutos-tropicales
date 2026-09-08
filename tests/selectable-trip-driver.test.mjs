@@ -15,6 +15,9 @@ test('el conductor del login aparece por defecto y el formulario permite selecci
   assert.match(departureSource, /drivers\.map\(driver => <option key=\{driver\.id\} value=\{driver\.id\}>\{driver\.full_name\}/);
   assert.match(mainSource, /assignmentReady=\{profileReady && vehiclesReady\}/);
   assert.match(mainSource, /disabled=\{!ready\}/);
+  assert.match(mainSource, /assignmentReady \? tripForm : null/);
+  assert.match(mainSource, /if \(sessionUserId\.current === nextUserId\) return/);
+  assert.match(mainSource, /setError\(profileError \? `No se pudo cargar tu asignación/);
 });
 
 test('la identidad autenticada conserva la propiedad y el GPS del recorrido', () => {

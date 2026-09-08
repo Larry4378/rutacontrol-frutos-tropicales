@@ -2,7 +2,7 @@ export const GPS_TRACKING_MAX_ACCURACY_METERS = 18;
 export const GPS_TRACKING_MIN_INTERVAL_MS = 1000;
 export const GPS_TRACKING_MAX_SPEED_MPS = 45;
 export const GPS_LIVE_STALE_AFTER_MS = 15_000;
-export const GPS_FORM_TARGET_ACCURACY_METERS = 20;
+export const GPS_FORM_TARGET_ACCURACY_METERS = 30;
 export const GPS_FORM_MAX_ACCURACY_METERS = 80;
 
 const finite = value => Number.isFinite(Number(value));
@@ -12,7 +12,7 @@ const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, v
 // usuario en otro sector. Conservamos varias muestras durante unos segundos y
 // usamos la más precisa que entregue el equipo.
 export const getPreciseGpsPosition = (geolocation, {
-  timeoutMs = 10_000,
+  timeoutMs = 8_000,
   targetAccuracyMeters = GPS_FORM_TARGET_ACCURACY_METERS,
   maxAccuracyMeters = GPS_FORM_MAX_ACCURACY_METERS,
 } = {}) => new Promise((resolve, reject) => {
