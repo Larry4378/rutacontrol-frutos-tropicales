@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   GPS_TRACKING_MAX_ACCURACY_METERS,
+  formatGpsAddress,
   getPreciseGpsPosition,
   gpsDistanceMeters,
   gpsPointFromLiveRow,
@@ -44,6 +45,16 @@ test('usa la lectura inmediata de Chrome cuando el seguimiento continuo no respo
   const position = await getPreciseGpsPosition(geolocation, { timeoutMs: 50, targetAccuracyMeters: 30 });
   assert.equal(currentRequested, true);
   assert.equal(position.coords.accuracy, 18);
+});
+
+test('muestra la calle exacta sin agregar el barrio vecino', () => {
+  const address = formatGpsAddress({ address: {
+    road: 'Calle Andrés Avelino Cáceres',
+    neighbourhood: 'Héroes del Cenepa',
+    city: 'Piura',
+    country: 'Perú',
+  }, display_name: 'Calle Andrés Avelino Cáceres, Héroes del Cenepa, Piura, Perú' });
+  assert.equal(address, 'Calle Andrés Avelino Cáceres, Piura, Perú');
 });
 
 test('rechaza una ubicación que continúa demasiado imprecisa', async () => {

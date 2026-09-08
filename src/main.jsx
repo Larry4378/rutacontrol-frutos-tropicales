@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { createWorker } from 'tesseract.js';
 import L from 'leaflet';
 import { supabase, SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from './supabase';
-import { GPS_TRACKING_MAX_ACCURACY_METERS, getPreciseGpsPosition, gpsDistanceMeters, isGpsPointFresh, shouldKeepGpsPoint, stabilizeGpsPoint, stabilizeLiveGpsRow } from './gps.js';
+import { GPS_TRACKING_MAX_ACCURACY_METERS, formatGpsAddress, getPreciseGpsPosition, gpsDistanceMeters, isGpsPointFresh, shouldKeepGpsPoint, stabilizeGpsPoint, stabilizeLiveGpsRow } from './gps.js';
 import { addNativeLocationListener, getNativeLocationStatus, isNativeAndroidLocation, startNativeLocationTracking, stopNativeLocationTracking } from './native-location.js';
 import { arrivalSubmissionError, isPositiveKilometer, normalizeKilometerInput } from './odometer-form.js';
 import { buildTripExportCsv, buildTripExportRows } from './trip-export.js';
@@ -1722,7 +1722,7 @@ function DepartureGpsRequired({ data, drivers = [], driverName = '', driverId = 
       setGpsReady(true);
       setGpsLoading(false);
       setStatus('Ubicación GPS registrada. Buscando la dirección…');
-      try { const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=17&addressdetails=1&accept-language=es&lat=${latitude}&lon=${longitude}`); const place = await response.json(); origin = place.display_name || origin; } catch {}
+      try { const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=17&addressdetails=1&accept-language=es&lat=${latitude}&lon=${longitude}`); const place = await response.json(); origin = formatGpsAddress(place, origin); } catch {}
       change('origin', origin);
       setStatus(`Origen GPS registrado con precisión aproximada de ${Math.round(accuracy)} m.`);
     }).catch(error => {
@@ -1819,7 +1819,7 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
       try {
         const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=17&addressdetails=1&accept-language=es&lat=${latitude}&lon=${longitude}`);
         const place = await response.json();
-        destination = place.display_name || destination;
+        destination = formatGpsAddress(place, destination);
       } catch {}
       change('destination', destination);
       setGpsStatus(`Destino GPS registrado con precisión aproximada de ${Math.round(accuracy)} m.`);

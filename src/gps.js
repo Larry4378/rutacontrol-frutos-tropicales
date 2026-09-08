@@ -5,6 +5,22 @@ export const GPS_LIVE_STALE_AFTER_MS = 15_000;
 export const GPS_FORM_TARGET_ACCURACY_METERS = 30;
 export const GPS_FORM_MAX_ACCURACY_METERS = 80;
 
+// El texto completo de Nominatim suele incluir barrios colindantes aunque la
+// coordenada esté sobre otra calle. Para la interfaz priorizamos la vía exacta
+// y dejamos solo la ciudad/región como referencia, sin cambiar las coordenadas
+// GPS que se guardan para el recorrido.
+export const formatGpsAddress = (place, fallback = '') => {
+  const address = place?.address || {};
+  const road = address.road || address.pedestrian || address.residential || address.footway || address.cycleway;
+  const roadWithNumber = road && address.house_number ? `${road} ${address.house_number}` : road;
+  const locality = address.city || address.town || address.village || address.municipality || address.county;
+  const region = address.state || address.region;
+  const country = address.country || '';
+  const parts = [roadWithNumber, locality, region, country].filter(Boolean).map(value => String(value).trim());
+  const unique = parts.filter((value, index) => parts.findIndex(item => item.toLowerCase() === value.toLowerCase()) === index);
+  return unique.length ? unique.join(', ') : place?.display_name || fallback;
+};
+
 const finite = value => Number.isFinite(Number(value));
 const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
 
