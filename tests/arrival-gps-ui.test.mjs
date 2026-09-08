@@ -38,13 +38,28 @@ test('si la llegada realmente coincide con el origen muestra el aviso superior',
   assert.match(arrivalSource, /if \(samePlace \|\| \(Number\.isFinite\(distance\) && distance < 100\)\) \{[\s\S]*?setGpsStatus\(validationError\);/);
 });
 
-test('la llegada muestra el botón de reintento solo si el GPS automático falla', () => {
-  const arrivalSource = mainSource.slice(mainSource.indexOf('function ArrivalSimple'));
+test('la salida y la llegada no muestran un botón manual para el GPS', () => {
+  const departureStart = mainSource.indexOf('function DepartureGpsRequired');
+  const arrivalStart = mainSource.indexOf('function ArrivalSimple');
+  const departureSource = mainSource.slice(departureStart, arrivalStart);
+  const arrivalSource = mainSource.slice(arrivalStart);
   assert.match(mainSource, /className="arrival-form"/);
-  assert.match(arrivalSource, /\{!gpsReady && !gpsLoading && <button[^>]+onClick=\{gps\}>↻ Reintentar GPS<\/button>\}/);
+  assert.doesNotMatch(departureSource, /Reintentar GPS/);
+  assert.doesNotMatch(arrivalSource, /Reintentar GPS/);
   assert.doesNotMatch(arrivalSource, /Actualizar destino con GPS/);
   assert.doesNotMatch(quickStyles, /\.arrival-form[^\n{]*nth-of-type\(3\)[^{]*\{\s*display\s*:\s*none/);
   assert.match(quickStyles, /\.departure-form \.form-grid>\.field:nth-of-type\(3\)\{display:none\}/);
+});
+
+test('las fechas de salida y llegada permiten hoy y los dos días anteriores', () => {
+  const departureStart = mainSource.indexOf('function DepartureGpsRequired');
+  const arrivalStart = mainSource.indexOf('function ArrivalSimple');
+  const departureSource = mainSource.slice(departureStart, arrivalStart);
+  const arrivalSource = mainSource.slice(arrivalStart);
+  assert.match(departureSource, /type="date" min=\{dateDaysAgo\(2\)\} max=\{today\(\)\}/);
+  assert.match(arrivalSource, /type="date" min=\{dateDaysAgo\(2\)\} max=\{today\(\)\}/);
+  assert.doesNotMatch(departureSource, /departureDate: today\(\), departureTime: now\(\), status/);
+  assert.match(arrivalSource, /returnDate: form\.returnDate/);
 });
 
 test('si el GPS falla muestra un aviso nativo para activar la ubicación', () => {

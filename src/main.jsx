@@ -26,6 +26,8 @@ const gpsRouteKm = points => (points || []).slice(1).reduce((total, point, index
 // ni haya sido confirmado como finalizado en Supabase.
 const isTripOpen = trip => (trip?.endKm === null || trip?.endKm === undefined || trip?.endKm === '') && trip?.status !== 'Finalizado';
 const today = () => { const local = new Date(); local.setMinutes(local.getMinutes() - local.getTimezoneOffset()); return local.toISOString().slice(0, 10); };
+const dateDaysAgo = days => { const local = new Date(); local.setDate(local.getDate() - days); local.setMinutes(local.getMinutes() - local.getTimezoneOffset()); return local.toISOString().slice(0, 10); };
+const isRecentTripDate = value => Boolean(value && value >= dateDaysAgo(2) && value <= today());
 const now = () => new Date().toTimeString().slice(0, 8);
 const normalizePlace = value => String(value || '')
   .toLocaleLowerCase('es-PE')
@@ -1623,6 +1625,7 @@ function DepartureGpsRequired({ data, drivers = [], driverName = '', driverId = 
   const [clock, setClock] = useState(now());
   const [photoSelected, setPhotoSelected] = useState(false);
   const autoGpsRequested = useRef(false);
+  const gpsAttempts = useRef(0);
   const assignedVehicle = data.vehicles.find(vehicle => String(vehicle.id) === String(assignedVehicleId));
   const assignedLabel = assignedVehicle ? `${assignedVehicle.plate} · ${assignedVehicle.brand}` : assignedVehicleLabel;
   const pendingTrip = data.trips.find(trip => isTripOpen(trip) && (
@@ -1639,7 +1642,7 @@ function DepartureGpsRequired({ data, drivers = [], driverName = '', driverId = 
     if (driverId) setForm(current => ({ ...current, driver: driverName, driverProfileId: driverId }));
   }, [driverId, driverName]);
   useEffect(() => { if (assignedVehicleId) change('vehicleId', assignedVehicleId); }, [assignedVehicleId]);
-  useEffect(() => { const timer = setInterval(() => { const time = now(); setClock(time); setForm(current => ({ ...current, departureDate: today(), departureTime: time })); }, 1000); return () => clearInterval(timer); }, []);
+  useEffect(() => { const timer = setInterval(() => { const time = now(); setClock(time); setForm(current => ({ ...current, departureTime: time })); }, 1000); return () => clearInterval(timer); }, []);
   const ocr = async file => {
     if (!file) return false;
     setPhotoSelected(false);
@@ -1653,6 +1656,7 @@ function DepartureGpsRequired({ data, drivers = [], driverName = '', driverId = 
     setStatus('Foto guardada correctamente. Revisa la vista previa y escribe manualmente el kilometraje mostrado.');
   };
   const gps = () => {
+    gpsAttempts.current += 1;
     if (!navigator.geolocation) {
       setGpsLoading(false);
       setStatus('Este navegador no permite GPS.');
@@ -1685,11 +1689,17 @@ function DepartureGpsRequired({ data, drivers = [], driverName = '', driverId = 
     }, error => {
       setGpsReady(false);
       setGpsLoading(false);
+      if (error?.code !== 1 && gpsAttempts.current < 2) {
+        setGpsLoading(true);
+        setStatus('No se obtuvo la ubicación. Realizando un segundo intento automático…');
+        window.setTimeout(gps, 1200);
+        return;
+      }
       setStatus(error?.code === 1
-        ? 'Debes permitir a Google Chrome usar la ubicación para confirmar la salida.'
-        : 'Activa la ubicación GPS del celular para confirmar la salida.');
+        ? 'Chrome tiene bloqueada la ubicación. Pulsa el candado del navegador, permite “Ubicación” y vuelve a abrir este formulario.'
+        : 'No se pudo obtener el GPS automáticamente. Activa la ubicación del celular y vuelve a abrir este formulario.');
       window.alert(error?.code === 1
-        ? 'Permite a Google Chrome usar la ubicación. Después vuelve a “Registrar salida”.'
+        ? 'Chrome tiene bloqueada la ubicación. Pulsa el candado o ajustes del sitio, permite “Ubicación” y vuelve a abrir “Registrar salida”.'
         : 'Activa la ubicación (GPS) de tu celular. Después vuelve a “Registrar salida”.');
     }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
   };
@@ -1702,11 +1712,12 @@ function DepartureGpsRequired({ data, drivers = [], driverName = '', driverId = 
     event.preventDefault();
     if (pendingTrip) return alert('Primero debes registrar la llegada de tu salida pendiente.');
     if (!gpsReady) return;
+    if (!isRecentTripDate(form.departureDate)) return alert('Selecciona la fecha de hoy o uno de los dos días anteriores.');
     if (!photoSelected) return alert('Debes subir la foto del tablero y esperar a que termine de guardarse.');
     if (!isPositiveKilometer(form.startKm)) return alert('Escribe manualmente un kilometraje de salida válido.');
-    onSave({ ...form, id: id(), departureDate: today(), departureTime: now(), status: 'En ruta' });
+    onSave({ ...form, id: id(), departureTime: now(), status: 'En ruta' });
   };
-  return <><dialog open className="quick-departure-modal"><form className="departure-form" onSubmit={submit}><div className="modal-head"><div><p className="eyebrow">SALIDA</p><h2>Registrar salida rápida</h2></div><button type="button" className="close" onClick={onClose}>×</button></div><p className="live-clock">Hora actual: <b>{clock}</b></p>{pendingTrip ? <><p className="empty-message">Ya tienes una salida pendiente con <b>{vehicleName(data, pendingTrip.vehicleId)}</b>. Registra primero tu llegada para iniciar otro recorrido.</p><div className="form-actions"><button type="button" className="primary" onClick={onClose}>Entendido</button></div></> : <>{status && <p className="ocr-status" aria-live="polite">{status}</p>}<div className="form-grid"><div className="field full"><label>Vehículo asignado</label><select required value={form.vehicleId || ''} onChange={event => change('vehicleId', event.target.value)}>{assignedVehicleId && <option value={assignedVehicleId}>{assignedLabel || 'Vehículo asignado'}</option>}{!assignedVehicleId && <option value="">Seleccionar vehículo</option>}{data.vehicles.filter(vehicle => String(vehicle.id) !== String(assignedVehicleId)).map(vehicle => <option key={vehicle.id} value={vehicle.id}>{vehicle.plate} · {vehicle.brand}</option>)}</select><small className="field-help">Tu vehículo aparece por defecto. Cámbialo solo si ese día utilizas otra movilidad.</small></div><div className="field"><label>Fecha</label><input type="date" value={form.departureDate} readOnly /></div><div className="field"><label>Hora</label><input type="time" step="1" value={form.departureTime} readOnly /></div><div className="field"><label>Conductor asignado</label><select required value={form.driverProfileId || ''} onChange={event => selectDriver(event.target.value)}><option value="">Seleccionar conductor</option>{drivers.map(driver => <option key={driver.id} value={driver.id}>{driver.full_name}</option>)}</select><small className="field-help">Tu usuario aparece por defecto. Selecciona otro conductor solo cuando corresponda.</small></div><div className="field"><label>Origen detectado por GPS</label><input required value={form.origin || ''} readOnly placeholder={gpsLoading ? 'Obteniendo GPS…' : 'Activa GPS para obtener la dirección'} />{!gpsReady && !gpsLoading && <button type="button" className="gps-button" onClick={gps}>↻ Reintentar GPS</button>}</div><div className="field full"><label>Foto del odómetro de salida</label><PhotoSource onChange={event => ocr(event.target.files?.[0])} onStored={storeDeparturePhoto} showPreview /></div><div className="field full"><label>Kilometraje de salida</label><input required type="text" inputMode="decimal" pattern="\d+(?:\.\d+)?" value={form.startKm || ''} onChange={event => change('startKm', normalizeKilometerInput(event.target.value))} placeholder="Escribe el kilometraje que muestra el tablero" /><small className="field-help">La foto es obligatoria y podrás revisarla aquí. Después escribe manualmente el kilometraje que aparece en el tablero.</small></div></div><div className="form-actions"><button type="button" className="secondary" onClick={onClose}>Cancelar</button><button className="primary" disabled={!gpsReady || !photoSelected || !form.driverProfileId || !isPositiveKilometer(form.startKm)}>Confirmar salida</button></div></>}</form></dialog>{!pendingTrip && <EvidenceInjector />}</>;
+  return <><dialog open className="quick-departure-modal"><form className="departure-form" onSubmit={submit}><div className="modal-head"><div><p className="eyebrow">SALIDA</p><h2>Registrar salida rápida</h2></div><button type="button" className="close" onClick={onClose}>×</button></div><p className="live-clock">Hora actual: <b>{clock}</b></p>{pendingTrip ? <><p className="empty-message">Ya tienes una salida pendiente con <b>{vehicleName(data, pendingTrip.vehicleId)}</b>. Registra primero tu llegada para iniciar otro recorrido.</p><div className="form-actions"><button type="button" className="primary" onClick={onClose}>Entendido</button></div></> : <>{status && <p className="ocr-status" aria-live="polite">{status}</p>}<div className="form-grid"><div className="field full"><label>Vehículo asignado</label><select required value={form.vehicleId || ''} onChange={event => change('vehicleId', event.target.value)}>{assignedVehicleId && <option value={assignedVehicleId}>{assignedLabel || 'Vehículo asignado'}</option>}{!assignedVehicleId && <option value="">Seleccionar vehículo</option>}{data.vehicles.filter(vehicle => String(vehicle.id) !== String(assignedVehicleId)).map(vehicle => <option key={vehicle.id} value={vehicle.id}>{vehicle.plate} · {vehicle.brand}</option>)}</select><small className="field-help">Tu vehículo aparece por defecto. Cámbialo solo si ese día utilizas otra movilidad.</small></div><div className="field"><label>Fecha</label><input required type="date" min={dateDaysAgo(2)} max={today()} value={form.departureDate} onChange={event => change('departureDate', event.target.value)} /></div><div className="field"><label>Hora</label><input type="time" step="1" value={form.departureTime} readOnly /></div><div className="field"><label>Conductor asignado</label><select required value={form.driverProfileId || ''} onChange={event => selectDriver(event.target.value)}><option value="">Seleccionar conductor</option>{drivers.map(driver => <option key={driver.id} value={driver.id}>{driver.full_name}</option>)}</select><small className="field-help">Tu usuario aparece por defecto. Selecciona otro conductor solo cuando corresponda.</small></div><div className="field"><label>Origen detectado por GPS</label><input required value={form.origin || ''} readOnly placeholder={gpsLoading ? 'Obteniendo GPS…' : 'GPS no disponible'} /></div><div className="field full"><label>Foto del odómetro de salida</label><PhotoSource onChange={event => ocr(event.target.files?.[0])} onStored={storeDeparturePhoto} showPreview /></div><div className="field full"><label>Kilometraje de salida</label><input required type="text" inputMode="decimal" pattern="\d+(?:\.\d+)?" value={form.startKm || ''} onChange={event => change('startKm', normalizeKilometerInput(event.target.value))} placeholder="Escribe el kilometraje que muestra el tablero" /><small className="field-help">La foto es obligatoria y podrás revisarla aquí. Después escribe manualmente el kilometraje que aparece en el tablero.</small></div></div><div className="form-actions"><button type="button" className="secondary" onClick={onClose}>Cancelar</button><button className="primary" disabled={!gpsReady || !photoSelected || !form.driverProfileId || !isPositiveKilometer(form.startKm)}>Confirmar salida</button></div></>}</form></dialog>{!pendingTrip && <EvidenceInjector />}</>;
 }
 
 function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }) {
@@ -1721,6 +1732,7 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
   const [submitError, setSubmitError] = useState('');
   const [clock, setClock] = useState(now());
   const autoGpsRequested = useRef(false);
+  const gpsAttempts = useRef(0);
   const trip = active.find(item => item.id === form.tripId);
   const change = (key, value) => setForm(current => ({ ...current, [key]: value }));
   useEffect(() => { if (active.length === 1) change('tripId', active[0].id); }, [active.length, active[0]?.id]);
@@ -1728,11 +1740,12 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
     const timer = setInterval(() => {
       const time = now();
       setClock(time);
-      setForm(current => ({ ...current, returnDate: today(), returnTime: time }));
+      setForm(current => ({ ...current, returnTime: time }));
     }, 1000);
     return () => clearInterval(timer);
   }, []);
   const gps = () => {
+    gpsAttempts.current += 1;
     setSubmitError('');
     if (!navigator.geolocation) {
       setGpsLoading(false);
@@ -1772,15 +1785,21 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
     }, error => {
       setGpsReady(false);
       setGpsLoading(false);
+      if (error?.code !== 1 && gpsAttempts.current < 2) {
+        setGpsLoading(true);
+        setGpsStatus('No se obtuvo la ubicación. Realizando un segundo intento automático…');
+        window.setTimeout(gps, 1200);
+        return;
+      }
       const message = error?.code === 1
-        ? 'La ubicación está bloqueada. Activa el permiso de ubicación y vuelve a abrir este formulario.'
+        ? 'Chrome tiene bloqueada la ubicación. Pulsa el candado del navegador, permite “Ubicación” y vuelve a abrir este formulario.'
         : error?.code === 3
-          ? 'El GPS demoró demasiado. Cierra y vuelve a abrir este formulario para intentarlo nuevamente.'
+          ? 'El GPS demoró demasiado después de dos intentos automáticos. Activa la ubicación y vuelve a abrir este formulario.'
           : 'No se pudo obtener la ubicación. Activa el GPS del equipo y vuelve a abrir este formulario.';
       setGpsStatus(message);
       setSubmitError(message);
       window.alert(error?.code === 1
-        ? 'Permite a Google Chrome usar la ubicación. Después vuelve a abrir “Registrar llegada”.'
+        ? 'Chrome tiene bloqueada la ubicación. Pulsa el candado o ajustes del sitio, permite “Ubicación” y vuelve a abrir “Registrar llegada”.'
         : 'Activa la ubicación (GPS) de tu celular. Después vuelve a abrir “Registrar llegada”.');
     }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
   };
@@ -1806,6 +1825,10 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
     event.preventDefault();
     if (saving) return;
     setSubmitError('');
+    if (!isRecentTripDate(form.returnDate)) {
+      setSubmitError('Selecciona la fecha de hoy o uno de los dos días anteriores.');
+      return;
+    }
     const departurePoint = trip?.routePoints?.[0];
     const distance = departurePoint && form.arrivalPoint ? gpsDistanceMeters(departurePoint, form.arrivalPoint) : null;
     // La dirección devuelta por el mapa puede ser idéntica para distintos puntos
@@ -1833,7 +1856,7 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
     }
     setSaving(true);
     setStatus('Guardando llegada y cerrando el recorrido…');
-    const registered = await onSave({ ...trip, endKm: form.endKm, endPhoto: form.endPhoto, returnDate: today(), returnTime: now(), destination: form.destination, status: 'Finalizado' });
+    const registered = await onSave({ ...trip, endKm: form.endKm, endPhoto: form.endPhoto, returnDate: form.returnDate, returnTime: now(), destination: form.destination, status: 'Finalizado' });
     if (!registered) {
       setSaving(false);
       setSubmitError('La llegada no se pudo guardar. Revisa el mensaje mostrado e inténtalo nuevamente.');
@@ -1861,11 +1884,10 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
                   </select>}
               <small className="field-help">Corresponde al vehículo con el que registraste tu salida.</small>
             </div>
-            <div className="field full"><label>Fecha</label><input type="date" value={form.returnDate} readOnly /></div>
+            <div className="field full"><label>Fecha</label><input required type="date" min={dateDaysAgo(2)} max={today()} value={form.returnDate} onChange={event => change('returnDate', event.target.value)} /></div>
             <div className="field full">
               <label>Destino real</label>
-              <input required value={form.destination || ''} readOnly placeholder={gpsLoading ? 'Obteniendo GPS…' : 'Activa GPS para obtener la dirección'} />
-              {!gpsReady && !gpsLoading && <button type="button" className="gps-button" onClick={gps}>↻ Reintentar GPS</button>}
+              <input required value={form.destination || ''} readOnly placeholder={gpsLoading ? 'Obteniendo GPS…' : 'GPS no disponible'} />
             </div>
             <div className="field full">
               <label>Foto del odómetro final</label>
@@ -1893,7 +1915,7 @@ createRoot(document.getElementById('root')).render(<App />);
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', async () => {
     try {
-      const workerVersion = 'v105';
+    const workerVersion = 'v106';
       const workerUrl = `./sw.js?v=${workerVersion}`;
       const previous = await navigator.serviceWorker.getRegistration('./');
       const needsReplacement = Boolean(previous && !previous.active?.scriptURL.includes(`v=${workerVersion}`));

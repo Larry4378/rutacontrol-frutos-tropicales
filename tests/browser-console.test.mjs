@@ -13,11 +13,11 @@ test('declara la capacidad web móvil moderna junto con la compatibilidad de App
 
 test('el service worker ignora protocolos internos de las extensiones del navegador', () => {
   assert.match(workerSource, /requestUrl\.protocol !== 'http:' && requestUrl\.protocol !== 'https:'/);
-  assert.match(workerSource, /const CACHE_NAME = 'rutacontrol-v105'/);
+  assert.match(workerSource, /const CACHE_NAME = 'rutacontrol-v106'/);
 });
 
 test('reemplaza una sola vez el service worker antiguo sin usar la caché', () => {
-  assert.match(mainSource, /const workerVersion = 'v105'/);
+  assert.match(mainSource, /const workerVersion = 'v106'/);
   assert.match(mainSource, /await previous\.unregister\(\)/);
   assert.match(mainSource, /controllerchange/);
   assert.match(mainSource, /updateViaCache: 'none'/);
