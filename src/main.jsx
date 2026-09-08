@@ -783,6 +783,7 @@ function RouteMap({ data, profile, driverPreview, onUpdate }) {
   const map = useRef(null);
   const marker = useRef(null);
   const watcher = useRef(null);
+  const browserPoller = useRef(null);
   const nativeListener = useRef(null);
   const record = useRef(active);
   const livePointRef = useRef(null);
@@ -996,6 +997,7 @@ function RouteMap({ data, profile, driverPreview, onUpdate }) {
 
   useEffect(() => {
     if (watcher.current) { navigator.geolocation.clearWatch(watcher.current); watcher.current = null; }
+    if (browserPoller.current) { window.clearInterval(browserPoller.current); browserPoller.current = null; }
     let disposed = false;
     const tripId = active?.id;
 
@@ -1078,7 +1080,7 @@ function RouteMap({ data, profile, driverPreview, onUpdate }) {
     } else {
       setTracking(true);
       setMessage('GPS web activo. Mantén esta página abierta para enviar la ubicación.');
-      watcher.current = navigator.geolocation.watchPosition(position => consumePoint({
+      const handleBrowserPosition = position => consumePoint({
         lat: position.coords.latitude,
         lng: position.coords.longitude,
         accuracy: position.coords.accuracy,
@@ -1087,15 +1089,24 @@ function RouteMap({ data, profile, driverPreview, onUpdate }) {
         timestamp: Number(position.timestamp || Date.now()),
         at: new Date(Number(position.timestamp || Date.now())).toISOString(),
         source: 'browser',
-      }), () => {
+      });
+      const browserOptions = { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 };
+      watcher.current = navigator.geolocation.watchPosition(handleBrowserPosition, () => {
         setTracking(false);
         setMessage('No se pudo actualizar el GPS. Activa la ubicación precisa y mantén abierta la aplicación.');
-      }, { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
+      }, browserOptions);
+      // Algunos navegadores espacian demasiado los eventos de watchPosition.
+      // Esta lectura de respaldo mantiene el recorrido actualizado sin crear
+      // puntos duplicados: consumePoint aplica timestamp, precisión y salto.
+      browserPoller.current = window.setInterval(() => {
+        navigator.geolocation.getCurrentPosition(handleBrowserPosition, () => {}, browserOptions);
+      }, 2500);
     }
 
     return () => {
       disposed = true;
       if (watcher.current) { navigator.geolocation.clearWatch(watcher.current); watcher.current = null; }
+      if (browserPoller.current) { window.clearInterval(browserPoller.current); browserPoller.current = null; }
       if (nativeListener.current) {
         nativeListener.current.remove();
         nativeListener.current = null;
@@ -1972,7 +1983,7 @@ createRoot(document.getElementById('root')).render(<App />);
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', async () => {
     try {
-    const workerVersion = 'v111';
+    const workerVersion = 'v112';
       const workerUrl = `./sw.js?v=${workerVersion}`;
       const previous = await navigator.serviceWorker.getRegistration('./');
       const needsReplacement = Boolean(previous && !previous.active?.scriptURL.includes(`v=${workerVersion}`));

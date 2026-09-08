@@ -36,6 +36,14 @@ test('el mapa escucha cambios en tiempo real y conserva un respaldo de red', () 
   assert.match(mainSource, /startNativeLocationTracking/);
 });
 
+test('el GPS web mantiene una lectura automática de respaldo', () => {
+  assert.match(mainSource, /navigator\.geolocation\.watchPosition\(handleBrowserPosition/);
+  assert.match(mainSource, /navigator\.geolocation\.getCurrentPosition\(handleBrowserPosition/);
+  assert.match(mainSource, /window\.setInterval\(\(\) => \{\s*navigator\.geolocation\.getCurrentPosition\(handleBrowserPosition/);
+  assert.match(mainSource, /\}, 2500\);/);
+  assert.match(mainSource, /window\.clearInterval\(browserPoller\.current\)/);
+});
+
 test('la tabla en vivo usa RLS y autoriza únicamente el viaje propio o al administrador', () => {
   assert.match(migration, /enable row level security/);
   assert.match(migration, /trip\.driver_id = \(select auth\.uid\(\)\)/);
