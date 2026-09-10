@@ -1,3 +1,5 @@
+import * as XLSX from 'xlsx';
+
 export const TRIP_EXPORT_HEADERS = [
   'Fecha de salida',
   'Hora de salida',
@@ -60,4 +62,16 @@ export const buildTripExportCsv = rows => {
     .join('\r\n');
   // Excel en configuración regional peruana reconoce el separador indicado.
   return `\ufeffsep=;\r\n${table}`;
+};
+
+export const buildTripExportXlsx = rows => {
+  const worksheet = XLSX.utils.aoa_to_sheet([TRIP_EXPORT_HEADERS, ...rows]);
+  const lastRow = rows.length + 1;
+  const lastColumn = String.fromCharCode(64 + TRIP_EXPORT_HEADERS.length);
+  worksheet['!autofilter'] = { ref: `A1:${lastColumn}${lastRow}` };
+  worksheet['!freeze'] = { ySplit: 1, topLeftCell: 'A2', activePane: 'bottomLeft', state: 'frozen' };
+  worksheet['!cols'] = TRIP_EXPORT_HEADERS.map(header => ({ wch: Math.min(32, Math.max(14, header.length + 2)) }));
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Recorridos');
+  return XLSX.write(workbook, { bookType: 'xlsx', type: 'array', compression: true });
 };

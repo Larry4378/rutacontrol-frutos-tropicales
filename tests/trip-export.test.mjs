@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildTripExportCsv, buildTripExportRows, TRIP_EXPORT_HEADERS } from '../src/trip-export.js';
+import * as XLSX from 'xlsx';
+import { buildTripExportCsv, buildTripExportRows, buildTripExportXlsx, TRIP_EXPORT_HEADERS } from '../src/trip-export.js';
 
 const completed = {
   departureDate: '2026-08-30',
@@ -46,4 +47,13 @@ test('el CSV abre por columnas en Excel y neutraliza fórmulas', () => {
   assert.ok(csv.startsWith('\ufeffsep=;\r\n'));
   assert.match(csv, /"'=HIPERVINCULO\(""sitio""\)"/);
   assert.match(csv, /118000;118067;67;"Finalizado"/);
+});
+
+test('el XLSX conserva filtros desplegables y encabezado inmovilizado', () => {
+  const bytes = buildTripExportXlsx(buildTripExportRows([completed], labels));
+  const workbook = XLSX.read(bytes, { type: 'array' });
+  const worksheet = workbook.Sheets.Recorridos;
+  assert.equal(worksheet['!autofilter'].ref, 'A1:M2');
+  assert.equal(worksheet.A1.v, 'Fecha de salida');
+  assert.equal(worksheet.M2.v, 'Entrega terminada');
 });

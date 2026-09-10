@@ -6,7 +6,7 @@ import { supabase, SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from './supabase';
 import { GPS_TRACKING_MAX_ACCURACY_METERS, formatGpsAddress, getPreciseGpsPosition, gpsDistanceMeters, isGpsPointFresh, shouldKeepGpsPoint, stabilizeGpsPoint, stabilizeLiveGpsRow } from './gps.js';
 import { addNativeLocationListener, getNativeLocationStatus, isNativeAndroidLocation, startNativeLocationTracking, stopNativeLocationTracking } from './native-location.js';
 import { arrivalSubmissionError, isPositiveKilometer, normalizeKilometerInput } from './odometer-form.js';
-import { buildTripExportCsv, buildTripExportRows } from './trip-export.js';
+import { buildTripExportRows, buildTripExportXlsx } from './trip-export.js';
 import 'leaflet/dist/leaflet.css';
 import '../styles.css';
 import '../mango.css';
@@ -1165,11 +1165,11 @@ function Trips({data,drivers=[],profile,onEdit,onDelete}) {
       vehicleName:trip=>vehicleName(data,trip.vehicleId),
       driverName,
     });
-    const blob=new Blob([buildTripExportCsv(rows)],{type:'text/csv;charset=utf-8'});
+    const blob=new Blob([buildTripExportXlsx(rows)],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
     const url=URL.createObjectURL(blob);
     const anchor=document.createElement('a');
     anchor.href=url;
-    anchor.download=`recorridos_filtrados_${today()}.csv`;
+    anchor.download=`recorridos_filtrados_${today()}.xlsx`;
     anchor.click();
     window.setTimeout(()=>URL.revokeObjectURL(url),1000);
   };
@@ -1983,7 +1983,7 @@ createRoot(document.getElementById('root')).render(<App />);
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', async () => {
     try {
-    const workerVersion = 'v112';
+    const workerVersion = 'v113';
       const workerUrl = `./sw.js?v=${workerVersion}`;
       const previous = await navigator.serviceWorker.getRegistration('./');
       const needsReplacement = Boolean(previous && !previous.active?.scriptURL.includes(`v=${workerVersion}`));
