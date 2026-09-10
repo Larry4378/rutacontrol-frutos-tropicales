@@ -92,3 +92,11 @@ test('si el GPS falla muestra un aviso nativo para activar la ubicación', () =>
   assert.match(arrivalSource, /window\.alert\(error\?\.code === 1/);
   assert.match(arrivalSource, /Activa la ubicación \(GPS\) de tu celular/);
 });
+
+test('el inicio muestra la tarjeta GPS con mapa, precisión y enlace a Google Maps', () => {
+  assert.match(mainSource, /function GpsLocationCard\(\)/);
+  assert.match(mainSource, /gps-location-map/);
+  assert.match(mainSource, /gps-refresh-button/);
+  assert.match(mainSource, /Ver en Google Maps ↗/);
+  assert.match(mainSource, /<GpsLocationCard\/>/);
+});

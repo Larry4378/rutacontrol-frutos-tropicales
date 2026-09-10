@@ -750,7 +750,73 @@ function Login({ onLogin, onDriverLogin, error, webAppInstalled, onInstall }) {
   const savedDriverCode = localStorage.getItem('rutacontrol_driver_code') || '';
   return <section className="login-screen"><form className="login-card" onSubmit={submit}><div className="login-fruit">●</div><p className="eyebrow">FRUTOS TROPICALES EXPORT. PERÚ</p><h1>{driverMode?'Acceso de conductor':'Acceso administrativo'}</h1><p>{driverMode?'Ingresa el código y PIN entregados por el administrador.':'Ingresa con tu correo y contraseña de administrador.'}</p>{driverMode?<><label>Código de acceso</label><input name="accessCode" required autoFocus defaultValue={savedDriverCode} placeholder="Ejemplo: RGARCIA" pattern="[A-Za-z0-9_-]{4,20}"/><label>PIN de 6 números</label><input name="pin" required type="password" inputMode="numeric" pattern="\d{6}" maxLength="6" placeholder="••••••"/><label className="remember-driver"><input type="checkbox" checked={rememberDriver} onChange={event=>setRememberDriver(event.target.checked)}/> Recordar mi código en este equipo</label></>:<><label>Correo electrónico</label><input name="email" type="email" required autoFocus placeholder="correo@empresa.com"/><label>Contraseña</label><input name="password" type="password" required minLength="6" placeholder="Mínimo 6 caracteres"/></>}<p className="login-error">{error}</p><button className="primary">{driverMode?'Ingresar como conductor':'Ingresar como administrador'}</button><PwaInstallButton installed={webAppInstalled} onInstall={onInstall}/>{!driverMode&&<button type="button" className="secondary" onClick={()=>window.location.assign(window.location.pathname)}>Volver al acceso de conductor</button>}<small>Acceso protegido por Supabase.</small></form></section>;
 }
-function Dashboard({ data, profile, driverPreview, permissions, assignmentReady, onDeparture, onReturn, onTripUpdate, tripForm }) { return <>{(permissions.departure||permissions.arrival)&&<MangoQuickActions permissions={permissions} ready={assignmentReady} onDeparture={onDeparture} onReturn={onReturn}/>} {assignmentReady ? tripForm : null}<RouteMap data={data} profile={profile} driverPreview={driverPreview} onUpdate={onTripUpdate}/></>; }
+function Dashboard({ data, profile, driverPreview, permissions, assignmentReady, onDeparture, onReturn, onTripUpdate, tripForm }) { return <>{(permissions.departure||permissions.arrival)&&<MangoQuickActions permissions={permissions} ready={assignmentReady} onDeparture={onDeparture} onReturn={onReturn}/>} {assignmentReady ? tripForm : null}<GpsLocationCard/><RouteMap data={data} profile={profile} driverPreview={driverPreview} onUpdate={onTripUpdate}/></>; }
+
+function GpsLocationCard() {
+  const mapNode = useRef(null);
+  const map = useRef(null);
+  const marker = useRef(null);
+  const accuracyCircle = useRef(null);
+  const autoRequested = useRef(false);
+  const [point, setPoint] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [status, setStatus] = useState('Obteniendo ubicación GPS…');
+
+  const refresh = () => {
+    if (!navigator.geolocation) {
+      setLoading(false);
+      setStatus('Este navegador no permite obtener GPS.');
+      return;
+    }
+    setLoading(true);
+    setStatus('Obteniendo ubicación GPS…');
+    getPreciseGpsPosition(navigator.geolocation).then(position => {
+      const { latitude, longitude, accuracy } = position.coords;
+      setPoint({ lat: latitude, lng: longitude, accuracy: Math.round(accuracy), timestamp: Date.now(), at: new Date().toISOString() });
+      setLoading(false);
+      setStatus('Señal GPS obtenida');
+    }).catch(error => {
+      setLoading(false);
+      setStatus(error?.accuracy ? `Señal GPS débil · precisión ±${error.accuracy} m` : 'No se pudo obtener la ubicación. Activa el GPS e inténtalo nuevamente.');
+    });
+  };
+
+  useEffect(() => {
+    if (!mapNode.current || map.current) return;
+    map.current = L.map(mapNode.current, { zoomControl: false, attributionControl: false }).setView([-5.1945, -80.6328], 13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap contributors', maxNativeZoom: 19, maxZoom: 20 }).addTo(map.current);
+    L.control.zoom({ position: 'bottomright' }).addTo(map.current);
+    L.control.attribution({ position: 'bottomleft', prefix: '© OpenStreetMap' }).addTo(map.current);
+    return () => { map.current?.remove(); map.current = null; };
+  }, []);
+
+  useEffect(() => {
+    if (!point || !map.current) return;
+    const location = [point.lat, point.lng];
+    if (!marker.current) marker.current = L.circleMarker(location, { radius: 10, color: '#149fd2', weight: 4, fillColor: '#20b8e8', fillOpacity: 1 }).addTo(map.current);
+    else marker.current.setLatLng(location);
+    if (!accuracyCircle.current) accuracyCircle.current = L.circle(location, { radius: Math.max(accuracyFromPoint(point), 10), color: '#149fd2', weight: 2, fillColor: '#20b8e8', fillOpacity: .16 }).addTo(map.current);
+    else { accuracyCircle.current.setLatLng(location); accuracyCircle.current.setRadius(Math.max(accuracyFromPoint(point), 10)); }
+    map.current.setView(location, 18, { animate: true });
+    window.setTimeout(() => map.current?.invalidateSize(), 80);
+  }, [point]);
+
+  useEffect(() => {
+    if (autoRequested.current) return;
+    autoRequested.current = true;
+    refresh();
+  }, []);
+
+  const mapsUrl = googleMapsLocationUrl(point);
+  return <section className="gps-location-card">
+    <div className="gps-location-head"><div><h2>⌖ Su ubicación GPS</h2><p>Confirma el punto exacto antes de registrar el movimiento.</p></div><button type="button" className="gps-refresh-button" onClick={refresh} disabled={loading}>↻ Actualizar</button></div>
+    <div ref={mapNode} className="gps-location-map" aria-label="Mapa de su ubicación GPS" />
+    <div className="gps-signal-grid"><span>⌁ {status}</span>{point && <span>▥ Señal {point.accuracy <= 18 ? 'buena' : 'aceptable'} · ±{point.accuracy} m</span>}</div>
+    {point && <div className="gps-location-footer"><span>Lat {point.lat.toFixed(6)} · Lng {point.lng.toFixed(6)}</span>{mapsUrl && <a href={mapsUrl} target="_blank" rel="noreferrer">Ver en Google Maps ↗</a>}</div>}
+  </section>;
+}
+
+const accuracyFromPoint = point => Number.isFinite(Number(point?.accuracy)) ? Number(point.accuracy) : 20;
 
 function MaintenanceAlerts({data, profile, driverPreview, onGo}) {
   const alerts = useMemo(() => {
