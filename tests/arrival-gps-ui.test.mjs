@@ -74,8 +74,17 @@ test('el GPS de los formularios espera una muestra precisa antes de resolver la 
   const arrivalSource = mainSource.slice(arrivalStart);
   assert.match(departureSource, /getPreciseGpsPosition\(navigator\.geolocation\)/);
   assert.match(arrivalSource, /getPreciseGpsPosition\(navigator\.geolocation\)/);
-  assert.match(departureSource, /zoom=17&addressdetails=1&accept-language=es/);
-  assert.match(arrivalSource, /zoom=17&addressdetails=1&accept-language=es/);
+  assert.match(departureSource, /reverseGeocodeGpsAddress\(latitude, longitude, origin\)/);
+  assert.match(arrivalSource, /reverseGeocodeGpsAddress\(latitude, longitude, destination\)/);
+});
+
+test('la llegada conserva el punto GPS exacto aunque la calle sea aproximada', () => {
+  const arrivalSource = mainSource.slice(mainSource.indexOf('function ArrivalSimple'));
+  assert.match(arrivalSource, /const routePoints = \[\.\.\.\(trip\.routePoints \|\| \[\]\)\];/);
+  assert.match(arrivalSource, /routePoints\.push\(form\.arrivalPoint\)/);
+  assert.match(arrivalSource, /GpsLocationReference point=\{form\.arrivalPoint\}/);
+  assert.match(mainSource, /function GpsLocationReference\(\{ point \}\)/);
+  assert.match(mainSource, /Punto GPS exacto:/);
 });
 
 test('si el GPS falla muestra un aviso nativo para activar la ubicación', () => {

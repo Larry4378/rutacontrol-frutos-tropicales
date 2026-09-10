@@ -21,6 +21,36 @@ export const formatGpsAddress = (place, fallback = '') => {
   return unique.length ? unique.join(', ') : place?.display_name || fallback;
 };
 
+// Convierte las coordenadas reales en una referencia de calle. El texto de
+// una geocodificación inversa es orientativo (el mapa puede tener una vía
+// cercana registrada como principal), por eso el formulario conserva siempre
+// las coordenadas como la fuente exacta de la ubicación.
+export const reverseGeocodeGpsAddress = async (latitude, longitude, fallback = '', fetchImpl = globalThis.fetch) => {
+  if (typeof fetchImpl !== 'function') return fallback;
+  const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=18&addressdetails=1&accept-language=es&lat=${encodeURIComponent(latitude)}&lon=${encodeURIComponent(longitude)}`;
+  const response = await fetchImpl(url, {
+    headers: { Accept: 'application/json' },
+  });
+  if (!response?.ok) throw new Error(`No se pudo consultar la dirección (${response?.status || 'sin respuesta'}).`);
+  const place = await response.json();
+  return formatGpsAddress(place, fallback);
+};
+
+export const formatGpsCoordinates = ({ lat, lng, accuracy } = {}) => {
+  const latitude = Number(lat);
+  const longitude = Number(lng);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return '';
+  const precision = Number.isFinite(Number(accuracy)) ? ` · precisión ±${Math.round(Number(accuracy))} m` : '';
+  return `${latitude.toFixed(6)}, ${longitude.toFixed(6)}${precision}`;
+};
+
+export const googleMapsLocationUrl = ({ lat, lng } = {}) => {
+  const latitude = Number(lat);
+  const longitude = Number(lng);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return '';
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${latitude},${longitude}`)}`;
+};
+
 const finite = value => Number.isFinite(Number(value));
 const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
 

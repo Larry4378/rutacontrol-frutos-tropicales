@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { createWorker } from 'tesseract.js';
 import L from 'leaflet';
 import { supabase, SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from './supabase';
-import { GPS_TRACKING_MAX_ACCURACY_METERS, formatGpsAddress, getPreciseGpsPosition, gpsDistanceMeters, isGpsPointFresh, shouldKeepGpsPoint, stabilizeGpsPoint, stabilizeLiveGpsRow } from './gps.js';
+import { GPS_TRACKING_MAX_ACCURACY_METERS, formatGpsCoordinates, getPreciseGpsPosition, googleMapsLocationUrl, gpsDistanceMeters, isGpsPointFresh, reverseGeocodeGpsAddress, shouldKeepGpsPoint, stabilizeGpsPoint, stabilizeLiveGpsRow } from './gps.js';
 import { addNativeLocationListener, getNativeLocationStatus, isNativeAndroidLocation, startNativeLocationTracking, stopNativeLocationTracking } from './native-location.js';
 import { arrivalSubmissionError, isPositiveKilometer, normalizeKilometerInput } from './odometer-form.js';
 import { buildTripExportRows, buildTripExportXlsx } from './trip-export.js';
@@ -30,6 +30,16 @@ const today = () => { const local = new Date(); local.setMinutes(local.getMinute
 const dateDaysAgo = days => { const local = new Date(); local.setDate(local.getDate() - days); local.setMinutes(local.getMinutes() - local.getTimezoneOffset()); return local.toISOString().slice(0, 10); };
 const isRecentTripDate = value => Boolean(value && value >= dateDaysAgo(2) && value <= today());
 const now = () => new Date().toTimeString().slice(0, 8);
+const fortnightKey = value => {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return '';
+  return `${match[1]}-${match[2]}-${Number(match[3]) <= 15 ? '1' : '2'}`;
+};
+const fortnightLabel = key => {
+  const match = String(key || '').match(/^(\d{4})-(\d{2})-(1|2)$/);
+  if (!match) return 'Sin periodo';
+  return `${match[3] === '1' ? '1.ª quincena' : '2.ª quincena'} · ${match[2]}/${match[1]}`;
+};
 const normalizePlace = value => String(value || '')
   .toLocaleLowerCase('es-PE')
   .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -1219,6 +1229,8 @@ function Trips({data,drivers=[],profile,onEdit,onDelete}) {
 function Maintenance({data,onEdit,onDelete}) { return <Table heads={['Fecha','Vehículo','Servicio','Próxima fecha / km','']} >{data.maintenance.slice().reverse().map(x=><tr key={x.id}><td>{date(x.date)}</td><td>{vehicleName(data,x.vehicleId)}</td><td>{x.type}</td><td>{x.nextDate || '—'} {x.nextKm ? ` / ${x.nextKm} km` : ''}</td><td><Actions onEdit={()=>onEdit(x)} onDelete={()=>onDelete(x)}/></td></tr>)}</Table>; }
 function Fuel({data,drivers=[],profile,isAdmin=false,onEdit,onDelete}) {
   const [receipt,setReceipt] = useState(null);
+  const [periodFilter, setPeriodFilter] = useState('');
+  const [vehicleFilter, setVehicleFilter] = useState('');
   const openReceipt = async record => {
     if (!record.receiptPath) return alert('Este comprobante no tiene una foto disponible.');
     setReceipt({loading:true, record});
@@ -1231,14 +1243,69 @@ function Fuel({data,drivers=[],profile,isAdmin=false,onEdit,onDelete}) {
     setReceipt(null);
   };
   const rows = data.fuels.slice().sort((a,b) => `${b.date||''}${b.time||''}`.localeCompare(`${a.date||''}${a.time||''}`));
+  const periods = [...new Set(rows.map(record => fortnightKey(record.date)).filter(Boolean))].sort().reverse();
+  const fortnightRows = useMemo(() => {
+    const groups = new Map();
+    const getGroup = (vehicleId, period) => {
+      const groupKey = `${vehicleId || 'sin-vehiculo'}|${period}`;
+      if (!groups.has(groupKey)) groups.set(groupKey, { vehicleId, period, km: 0, gallons: 0 });
+      return groups.get(groupKey);
+    };
+    data.fuels.forEach(record => {
+      const period = fortnightKey(record.date);
+      const gallons = Number(record.gallons);
+      if (!period || !Number.isFinite(gallons) || gallons <= 0) return;
+      getGroup(record.vehicleId, period).gallons += gallons;
+    });
+    data.trips.forEach(trip => {
+      const period = fortnightKey(trip.departureDate);
+      const startKm = Number(trip.startKm);
+      const endKm = Number(trip.endKm);
+      if (!period || !Number.isFinite(startKm) || !Number.isFinite(endKm) || endKm <= startKm) return;
+      getGroup(trip.vehicleId, period).km += endKm - startKm;
+    });
+    return [...groups.values()]
+      .filter(row => (!periodFilter || row.period === periodFilter) && (!vehicleFilter || String(row.vehicleId) === String(vehicleFilter)))
+      .sort((a, b) => `${b.period}|${a.vehicleId || ''}`.localeCompare(`${a.period}|${b.vehicleId || ''}`));
+  }, [data.fuels, data.trips, periodFilter, vehicleFilter]);
   const driverName = record => {
     if (String(record.createdBy || '') === String(profile?.id || '')) return profile?.full_name || 'Mi comprobante';
     return drivers.find(driver => String(driver.id) === String(record.createdBy || ''))?.full_name || 'Chofer';
   };
-  return <><Table heads={[...(isAdmin ? ['Chofer'] : []),'Fecha','Vehículo','Comprobante','Estado','']}>
+  return <>
+  <section className="panel" style={{marginBottom: '18px'}}>
+    <div className="panel-title"><div><h2>Rendimiento quincenal</h2><p>Cruza kilómetros de recorridos con galones abastecidos.</p></div></div>
+    <div className="maintenance-filters" style={{marginTop: '14px'}}>
+      <select className="filter" aria-label="Filtrar por quincena" value={periodFilter} onChange={event => setPeriodFilter(event.target.value)}>
+        <option value="">Todas las quincenas</option>
+        {periods.map(period => <option key={period} value={period}>{fortnightLabel(period)}</option>)}
+      </select>
+      <select className="filter" aria-label="Filtrar por vehículo" value={vehicleFilter} onChange={event => setVehicleFilter(event.target.value)}>
+        <option value="">Todos los vehículos</option>
+        {data.vehicles.map(vehicle => <option key={vehicle.id} value={vehicle.id}>{vehicle.plate} · {vehicle.brand}</option>)}
+      </select>
+    </div>
+    {fortnightRows.length > 0 ? <Table heads={['Periodo','Vehículo','Kilómetros','Galones','Rendimiento','Estado']}>
+      {fortnightRows.map(row => {
+        const performance = row.gallons > 0 && row.km > 0 ? row.km / row.gallons : null;
+        const status = performance === null ? 'Pendiente de datos' : performance < 35 ? 'Revisar' : 'Dentro del parámetro';
+        return <tr key={`${row.vehicleId || 'sin-vehiculo'}-${row.period}`}>
+          <td>{fortnightLabel(row.period)}</td>
+          <td>{vehicleName(data, row.vehicleId)}</td>
+          <td>{row.km > 0 ? row.km.toLocaleString('es-PE', {maximumFractionDigits: 1}) : '—'}</td>
+          <td>{row.gallons > 0 ? row.gallons.toLocaleString('es-PE', {maximumFractionDigits: 2}) : '—'}</td>
+          <td>{performance === null ? '—' : `${performance.toLocaleString('es-PE', {maximumFractionDigits: 1})} km/gal`}</td>
+          <td><span className={`badge ${status === 'Dentro del parámetro' ? 'ok' : 'warn'}`}>{status}</span></td>
+        </tr>;
+      })}
+    </Table> : <p className="empty-message">Aún no hay datos suficientes para calcular una quincena.</p>}
+    <p className="field-help" style={{marginTop: '12px'}}>Referencia inicial: 35 km/galón. Si falta kilometraje o galones, el resultado queda pendiente.</p>
+  </section>
+  <Table heads={[...(isAdmin ? ['Chofer'] : []),'Fecha','Quincena','Vehículo','Comprobante','Estado','']}>
     {rows.map(record => <tr key={record.id}>
       {isAdmin && <td>{driverName(record)}</td>}
       <td>{date(record.date)}<small className="fuel-product-cell">{record.time || ''}</small></td>
+      <td>{fortnightLabel(fortnightKey(record.date))}</td>
       <td>{vehicleName(data,record.vehicleId)}</td>
       <td><b>{record.provider || 'Comprobante enviado'}</b>{record.product && <small className="fuel-product-cell">{record.product}</small>}{record.receiptPath && <button type="button" className="text-button" onClick={()=>openReceipt(record)}>Ver comprobante</button>}</td>
       <td><span className={`badge ${record.reviewStatus === 'Pendiente de revisión' ? 'warn' : 'ok'}`}>{record.reviewStatus || 'Pendiente de revisión'}</span></td>
@@ -1667,6 +1734,15 @@ function PhotoSource({ onChange, onStored, accept = 'image/*', withCamera = true
   return <div className="photo-source">{withCamera && <label>◉ Tomar foto<input type="file" accept={accept} capture="environment" onChange={select} /></label>}<label>▣ Elegir de galería<input type="file" accept={accept} onChange={select} /></label>{fileName && <small className="photo-loaded">{fileName}</small>}{showPreview && previewUrl && <figure className="odometer-photo-preview"><img src={previewUrl} alt="Vista previa de la foto adjuntada" /><figcaption>Vista previa de la foto que se guardará</figcaption></figure>}</div>;
 }
 
+function GpsLocationReference({ point }) {
+  const url = googleMapsLocationUrl(point);
+  if (!url) return null;
+  return <div className="gps-location-reference">
+    <small className="gps-coordinate-note">Punto GPS exacto: {formatGpsCoordinates(point)}</small>
+    <a className="gps-map-link" href={url} target="_blank" rel="noreferrer">Ver en Google Maps ↗</a>
+  </div>;
+}
+
 function DepartureGpsRequired({ data, drivers = [], driverName = '', driverId = '', assignedVehicleId = '', assignedVehicleLabel = '', onClose, onSave }) {
   const [form, setForm] = useState({ departureDate: today(), departureTime: now(), driver: driverName, driverProfileId: driverId, vehicleId: assignedVehicleId });
   const [status, setStatus] = useState('');
@@ -1740,7 +1816,7 @@ function DepartureGpsRequired({ data, drivers = [], driverName = '', driverId = 
       setGpsReady(true);
       setGpsLoading(false);
       setStatus('Ubicación GPS registrada. Buscando la dirección…');
-      try { const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=17&addressdetails=1&accept-language=es&lat=${latitude}&lon=${longitude}`); const place = await response.json(); origin = formatGpsAddress(place, origin); } catch {}
+      try { origin = await reverseGeocodeGpsAddress(latitude, longitude, origin); } catch {}
       change('origin', origin);
       setStatus(`Origen GPS registrado con precisión aproximada de ${Math.round(accuracy)} m.`);
     }).catch(error => {
@@ -1841,11 +1917,7 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
       setGpsLoading(false);
       setGpsStatus('Ubicación GPS registrada. Buscando la dirección…');
       let destination = coordinates;
-      try {
-        const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=17&addressdetails=1&accept-language=es&lat=${latitude}&lon=${longitude}`);
-        const place = await response.json();
-        destination = formatGpsAddress(place, destination);
-      } catch {}
+      try { destination = await reverseGeocodeGpsAddress(latitude, longitude, destination); } catch {}
       change('destination', destination);
       setGpsStatus(`Destino GPS registrado con precisión aproximada de ${Math.round(accuracy)} m.`);
     }).catch(error => {
@@ -1924,7 +1996,14 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
     }
     setSaving(true);
     setStatus('Guardando llegada y cerrando el recorrido…');
-    const registered = await onSave({ ...trip, endKm: form.endKm, endPhoto: form.endPhoto, returnDate: form.returnDate, returnTime: now(), destination: form.destination, status: 'Finalizado' });
+    // La llegada se agrega al mismo historial de puntos que transmite el
+    // vehículo. Así queda guardada la coordenada exacta aun cuando el nombre
+    // de la calle que devuelve el mapa sea aproximado.
+    const routePoints = [...(trip.routePoints || [])];
+    if (form.arrivalPoint && !routePoints.some(point => Number(point.timestamp) === Number(form.arrivalPoint.timestamp))) {
+      routePoints.push(form.arrivalPoint);
+    }
+    const registered = await onSave({ ...trip, endKm: form.endKm, endPhoto: form.endPhoto, returnDate: form.returnDate, returnTime: now(), destination: form.destination, routePoints, status: 'Finalizado' });
     if (!registered) {
       setSaving(false);
       setSubmitError('La llegada no se pudo guardar. Revisa el mensaje mostrado e inténtalo nuevamente.');
@@ -1956,6 +2035,7 @@ function ArrivalSimple({ data, driverName = '', driverId = '', onClose, onSave }
             <div className="field full">
               <label>Destino real</label>
               <input required value={form.destination || ''} readOnly placeholder={gpsLoading ? 'Obteniendo GPS…' : 'GPS no disponible'} />
+              <GpsLocationReference point={form.arrivalPoint} />
             </div>
             <div className="field full">
               <label>Foto del odómetro final</label>

@@ -2,14 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   GPS_TRACKING_MAX_ACCURACY_METERS,
+  formatGpsCoordinates,
   formatGpsAddress,
   getPreciseGpsPosition,
+  googleMapsLocationUrl,
   gpsDistanceMeters,
   gpsPointFromLiveRow,
   isGpsPointFresh,
   shouldKeepGpsPoint,
   stabilizeGpsPoint,
   stabilizeLiveGpsRow,
+  reverseGeocodeGpsAddress,
 } from '../src/gps.js';
 
 const gpsPosition = (accuracy, latitude = -5.2068, longitude = -80.6339) => ({
@@ -55,6 +58,20 @@ test('muestra la calle exacta sin agregar el barrio vecino', () => {
     country: 'Perú',
   }, display_name: 'Calle Andrés Avelino Cáceres, Héroes del Cenepa, Piura, Perú' });
   assert.equal(address, 'Calle Andrés Avelino Cáceres, Piura, Perú');
+});
+
+test('consulta la dirección a nivel de calle y conserva las coordenadas exactas', async () => {
+  let requestedUrl = '';
+  const address = await reverseGeocodeGpsAddress(-5.2037362, -80.6344715, 'GPS: -5.203736, -80.634472', async url => {
+    requestedUrl = url;
+    return { ok: true, async json() { return { address: { road: 'Calle Avelino Cáceres', city: 'Piura', country: 'Perú' } }; } };
+  });
+  assert.match(requestedUrl, /zoom=18&addressdetails=1&accept-language=es/);
+  assert.match(requestedUrl, /lat=-5\.2037362/);
+  assert.match(requestedUrl, /lon=-80\.6344715/);
+  assert.equal(address, 'Calle Avelino Cáceres, Piura, Perú');
+  assert.equal(formatGpsCoordinates({ lat: -5.2037362, lng: -80.6344715, accuracy: 20 }), '-5.203736, -80.634472 · precisión ±20 m');
+  assert.equal(googleMapsLocationUrl({ lat: -5.2037362, lng: -80.6344715 }), 'https://www.google.com/maps/search/?api=1&query=-5.2037362%2C-80.6344715');
 });
 
 test('rechaza una ubicación que continúa demasiado imprecisa', async () => {
