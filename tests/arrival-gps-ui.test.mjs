@@ -94,9 +94,17 @@ test('si el GPS falla muestra un aviso nativo para activar la ubicación', () =>
 });
 
 test('el inicio muestra la tarjeta GPS con mapa, precisión y enlace a Google Maps', () => {
-  assert.match(mainSource, /function GpsLocationCard\(\)/);
+  assert.match(mainSource, /function GpsLocationCard\(\{ data \}\)/);
   assert.match(mainSource, /gps-location-map/);
   assert.match(mainSource, /gps-refresh-button/);
   assert.match(mainSource, /Ver en Google Maps ↗/);
-  assert.match(mainSource, /<GpsLocationCard\/>/);
+  assert.match(mainSource, /<GpsLocationCard data=\{data\}\/\>/);
+});
+
+test('la tarjeta GPS usa el punto vivo de la salida y el icono de la movilidad', () => {
+  assert.match(mainSource, /const activeTrip = data\?\.trips\?\.find\(isTripOpen\)/);
+  assert.match(mainSource, /const storedPoint = activeTrip\?\.routePoints\?\.at\(-1\)/);
+  assert.match(mainSource, /GPS en vivo · ubicación actualizada/);
+  assert.match(mainSource, /gps-vehicle-icon/);
+  assert.match(mainSource, /vehicle\?\.vehicle_type/);
 });
