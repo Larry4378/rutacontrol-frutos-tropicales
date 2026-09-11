@@ -44,7 +44,8 @@ export const formatGpsCoordinates = ({ lat, lng, accuracy } = {}) => {
   return `${latitude.toFixed(6)}, ${longitude.toFixed(6)}${precision}`;
 };
 
-export const googleMapsLocationUrl = ({ lat, lng } = {}) => {
+export const googleMapsLocationUrl = (point = {}) => {
+  const { lat, lng } = point || {};
   const latitude = Number(lat);
   const longitude = Number(lng);
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return '';

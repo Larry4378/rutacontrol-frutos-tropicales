@@ -72,6 +72,7 @@ test('consulta la dirección a nivel de calle y conserva las coordenadas exactas
   assert.equal(address, 'Calle Avelino Cáceres, Piura, Perú');
   assert.equal(formatGpsCoordinates({ lat: -5.2037362, lng: -80.6344715, accuracy: 20 }), '-5.203736, -80.634472 · precisión ±20 m');
   assert.equal(googleMapsLocationUrl({ lat: -5.2037362, lng: -80.6344715 }), 'https://www.google.com/maps/search/?api=1&query=-5.2037362%2C-80.6344715');
+  assert.equal(googleMapsLocationUrl(null), '');
 });
 
 test('rechaza una ubicación que continúa demasiado imprecisa', async () => {
