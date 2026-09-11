@@ -896,7 +896,10 @@ function RouteMap({ data, profile, driverPreview, onUpdate, gpsPresentation = fa
 
   useEffect(() => {
     const storedLast = (active?.routePoints || []).at(-1);
-    const latest = livePoint || storedLast;
+    // Al confirmar una llegada el viaje deja de estar activo. Ignora cualquier
+    // punto vivo que haya quedado en el render anterior para que el mapa pueda
+    // retirar el marcador sin intentar leer una ruta ya finalizada.
+    const latest = active ? (livePoint || storedLast) : null;
     if (!map.current) return;
     if (!latest) {
       if (marker.current) { marker.current.remove(); marker.current = null; }

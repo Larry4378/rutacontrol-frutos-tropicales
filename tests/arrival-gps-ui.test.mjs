@@ -104,7 +104,8 @@ test('el inicio muestra un único mapa GPS de seguimiento y enlace a Google Maps
 test('el mapa único usa el punto vivo de la salida y el icono de la movilidad', () => {
   assert.match(mainSource, /function RouteMap\(\{ data, profile, driverPreview, onUpdate, gpsPresentation = false \}\)/);
   assert.match(mainSource, /const active = data\.trips\.find\(isTripOpen\)/);
-  assert.match(mainSource, /const latest = livePoint \|\| storedLast/);
+  assert.match(mainSource, /const latest = active \? \(livePoint \|\| storedLast\) : null/);
+  assert.match(mainSource, /Al confirmar una llegada el viaje deja de estar activo/);
   assert.match(mainSource, /moving-vehicle-icon/);
   assert.match(mainSource, /vehicle-map-pin/);
   const dashboardSource = mainSource.slice(mainSource.indexOf('function Dashboard'), mainSource.indexOf('\n\n// El mapa superior'));
