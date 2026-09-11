@@ -119,3 +119,11 @@ test('recorridos muestra las columnas derivadas del reporte operativo', () => {
   }
   assert.match(mainSource, /vehicleType:trip=>vehicleTypeName\(data,trip\.vehicleId\)/);
 });
+
+test('recorridos muestra las coordenadas GPS debajo de origen y destino', () => {
+  const tripsSource = mainSource.slice(mainSource.indexOf('function Trips'), mainSource.indexOf('function Maintenance({data'));
+  assert.match(mainSource, /const gpsCoordinates = point =>/);
+  assert.match(mainSource, /tripOriginGps\(t\)/);
+  assert.match(mainSource, /tripDestinationGps\(t\)/);
+  assert.match(tripsSource, /className="trip-gps-coordinates"/);
+});

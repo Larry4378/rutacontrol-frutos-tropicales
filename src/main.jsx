@@ -21,6 +21,9 @@ const date = value => value ? new Intl.DateTimeFormat('es-PE', { dateStyle: 'med
 const dateValue = value => String(value || '').match(/^\d{4}-\d{2}-\d{2}$/) ? new Date(`${value}T12:00:00`) : null;
 const monthYear = value => { const parsed = dateValue(value); return parsed ? `${String(parsed.getMonth() + 1).padStart(2, '0')}/${parsed.getFullYear()}` : '—'; };
 const weekday = value => { const parsed = dateValue(value); return parsed ? new Intl.DateTimeFormat('es-PE', { weekday: 'long' }).format(parsed) : '—'; };
+const gpsCoordinates = point => Number.isFinite(Number(point?.lat)) && Number.isFinite(Number(point?.lng)) ? `${Number(point.lat).toFixed(6)}, ${Number(point.lng).toFixed(6)}` : '';
+const tripOriginGps = trip => trip?.routePoints?.[0] || null;
+const tripDestinationGps = trip => trip?.endKm !== null && trip?.endKm !== undefined && trip?.endKm !== '' ? trip?.routePoints?.at(-1) || null : null;
 const money = value => `S/ ${Number(value || 0).toFixed(2)}`;
 const currentKm = (data, vehicle) => Math.max(Number(vehicle.km || 0), ...data.trips.filter(t => t.vehicleId === vehicle.id).map(t => Number(t.endKm || t.startKm || 0)));
 const gpsRouteKm = points => (points || []).slice(1).reduce((total, point, index) => {
@@ -1248,7 +1251,7 @@ function Trips({data,drivers=[],profile,onEdit,onDelete}) {
         <td>{t.endKm || '—'}</td>
         <td>{t.endKm ? `${Number(t.endKm)-Number(t.startKm)} km` : <span className="badge warn">En ruta</span>}</td>
         <td>{vehicleTypeName(data,t.vehicleId)}</td>
-        <td><div className="trip-route"><div><small>Origen</small><span>{t.origin || 'No registrado'}</span></div><i>→</i><div><small>Destino</small><span>{t.destination || 'Pendiente'}</span></div></div></td>
+        <td><div className="trip-route"><div><small>Origen</small><span>{t.origin || 'No registrado'}</span>{gpsCoordinates(tripOriginGps(t)) && <em className="trip-gps-coordinates">GPS: {gpsCoordinates(tripOriginGps(t))}</em>}</div><i>→</i><div><small>Destino</small><span>{t.destination || 'Pendiente'}</span>{gpsCoordinates(tripDestinationGps(t)) && <em className="trip-gps-coordinates">GPS: {gpsCoordinates(tripDestinationGps(t))}</em>}</div></div></td>
         <td>{t.endKm ? 'Finalizado' : 'En ruta'}</td>
         <td>{t.notes || '—'}{String(t.notes || '').includes('ingresado manualmente') && <><br/><span className="badge warn">Km manual · revisar foto</span></>}</td>
         <td><Actions onEdit={()=>onEdit(t)} onDelete={()=>onDelete(t)}/></td>

@@ -14,6 +14,8 @@ export const TRIP_EXPORT_HEADERS = [
   'Tipo de vehículo',
   'Origen',
   'Destino',
+  'GPS origen',
+  'GPS destino',
   'Estado',
   'Observaciones',
 ];
@@ -41,6 +43,9 @@ const excelWeekday = value => {
 };
 
 const excelVehicleType = value => String(value || '').trim() === 'Camioneta' ? 'Carro' : String(value || '').trim() || 'Carro';
+const gpsCoordinates = point => Number.isFinite(Number(point?.lat)) && Number.isFinite(Number(point?.lng))
+  ? `${Number(point.lat).toFixed(6)}, ${Number(point.lng).toFixed(6)}`
+  : '';
 
 export const buildTripExportRows = (trips, { vehicleName, driverName, vehicleType }) => trips.map(trip => {
   const finished = hasValue(trip.endKm);
@@ -63,6 +68,8 @@ export const buildTripExportRows = (trips, { vehicleName, driverName, vehicleTyp
     excelVehicleType(vehicleType?.(trip)),
     trip.origin || '',
     trip.destination || '',
+    gpsCoordinates(trip.routePoints?.[0]),
+    finished ? gpsCoordinates(trip.routePoints?.at(-1)) : '',
     finished ? 'Finalizado' : 'En ruta',
     trip.notes || '',
   ];
