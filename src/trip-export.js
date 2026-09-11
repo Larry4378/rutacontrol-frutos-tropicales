@@ -1,17 +1,19 @@
 import * as XLSX from 'xlsx';
 
 export const TRIP_EXPORT_HEADERS = [
-  'Fecha de salida',
-  'Hora de salida',
-  'Fecha de llegada',
-  'Hora de llegada',
-  'Vehículo',
+  'Mes-año',
+  'Día de la semana',
+  'Fecha',
   'Conductor',
+  'Vehículo',
+  'Hora inicio',
+  'Hora término',
+  'Km inicial',
+  'Km final',
+  'Km recorrido',
+  'Tipo de vehículo',
   'Origen',
   'Destino',
-  'Kilometraje de salida',
-  'Kilometraje de llegada',
-  'Total recorrido (km)',
   'Estado',
   'Observaciones',
 ];
@@ -23,7 +25,24 @@ const excelDate = value => {
   return match ? `${match[3]}/${match[2]}/${match[1]}` : String(value || '');
 };
 
-export const buildTripExportRows = (trips, { vehicleName, driverName }) => trips.map(trip => {
+const dateObject = value => {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return match ? new Date(`${value}T12:00:00`) : null;
+};
+
+const excelMonthYear = value => {
+  const date = dateObject(value);
+  return date ? `${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()}` : '';
+};
+
+const excelWeekday = value => {
+  const date = dateObject(value);
+  return date ? new Intl.DateTimeFormat('es-PE', { weekday: 'long' }).format(date) : '';
+};
+
+const excelVehicleType = value => String(value || '').trim() === 'Camioneta' ? 'Carro' : String(value || '').trim() || 'Carro';
+
+export const buildTripExportRows = (trips, { vehicleName, driverName, vehicleType }) => trips.map(trip => {
   const finished = hasValue(trip.endKm);
   const startKm = hasValue(trip.startKm) ? Number(trip.startKm) : '';
   const endKm = finished ? Number(trip.endKm) : '';
@@ -31,17 +50,19 @@ export const buildTripExportRows = (trips, { vehicleName, driverName }) => trips
     ? Math.max(0, endKm - startKm)
     : '';
   return [
+    excelMonthYear(trip.departureDate),
+    excelWeekday(trip.departureDate),
     excelDate(trip.departureDate),
-    trip.departureTime || '',
-    finished ? excelDate(trip.returnDate) : '',
-    finished ? trip.returnTime || '' : '',
-    vehicleName(trip),
     driverName(trip),
-    trip.origin || '',
-    trip.destination || '',
+    vehicleName(trip),
+    trip.departureTime || '',
+    finished ? trip.returnTime || '' : '',
     Number.isFinite(startKm) ? startKm : '',
     Number.isFinite(endKm) ? endKm : '',
     totalKm,
+    excelVehicleType(vehicleType?.(trip)),
+    trip.origin || '',
+    trip.destination || '',
     finished ? 'Finalizado' : 'En ruta',
     trip.notes || '',
   ];

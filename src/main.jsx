@@ -18,6 +18,9 @@ const empty = { vehicles: [], trips: [], maintenance: [], fuels: [], expenses: [
 const read = () => JSON.parse(localStorage.getItem('rutacontrol-react') || localStorage.getItem('rutacontrol-v2') || 'null') || empty;
 const id = () => crypto.randomUUID();
 const date = value => value ? new Intl.DateTimeFormat('es-PE', { dateStyle: 'medium' }).format(new Date(`${value}T12:00:00`)) : '—';
+const dateValue = value => String(value || '').match(/^\d{4}-\d{2}-\d{2}$/) ? new Date(`${value}T12:00:00`) : null;
+const monthYear = value => { const parsed = dateValue(value); return parsed ? `${String(parsed.getMonth() + 1).padStart(2, '0')}/${parsed.getFullYear()}` : '—'; };
+const weekday = value => { const parsed = dateValue(value); return parsed ? new Intl.DateTimeFormat('es-PE', { weekday: 'long' }).format(parsed) : '—'; };
 const money = value => `S/ ${Number(value || 0).toFixed(2)}`;
 const currentKm = (data, vehicle) => Math.max(Number(vehicle.km || 0), ...data.trips.filter(t => t.vehicleId === vehicle.id).map(t => Number(t.endKm || t.startKm || 0)));
 const gpsRouteKm = points => (points || []).slice(1).reduce((total, point, index) => {
@@ -1162,6 +1165,7 @@ function RouteMap({ data, profile, driverPreview, onUpdate, gpsPresentation = fa
 function Metric({label,value,note}) { return <div className="metric"><span className="metric-label">{label}</span><div className="metric-value">{value}</div><small>{note}</small></div>; }
 function List({title,text,onAdd,hideAdd=false,children}) { return <section><div className="section-head"><div><h2>{title}</h2><p>{text}</p></div>{!hideAdd&&<button className="primary" onClick={onAdd}>+ Agregar</button>}</div>{children}</section>; }
 const vehicleName=(data,vehicleId)=>data.vehicles.find(v=>v.id===vehicleId)?.plate || 'Vehículo eliminado';
+const vehicleTypeName=(data,vehicleId)=>{ const type=data.vehicles.find(v=>v.id===vehicleId)?.vehicle_type || 'Carro'; return type === 'Camioneta' ? 'Carro' : type; };
 const Actions=({onEdit,onDelete})=><><button className="edit" onClick={onEdit}>Editar</button><button className="delete" onClick={onDelete}>×</button></>;
 const VehicleActions=({onEdit,onDelete})=><><button className="edit" onClick={onEdit}>Editar</button><button className="delete" title="Solicita la placa antes de eliminar" onClick={onDelete}>Eliminar…</button></>;
 function Table({heads,children}) { return <div className="panel table-panel"><table><thead><tr>{heads.map(head=><th key={head}>{head}</th>)}</tr></thead><tbody>{children}</tbody></table></div>; }
@@ -1194,6 +1198,7 @@ function Trips({data,drivers=[],profile,onEdit,onDelete}) {
     const orderedTrips=filtered.slice().reverse();
     const rows=buildTripExportRows(orderedTrips,{
       vehicleName:trip=>vehicleName(data,trip.vehicleId),
+      vehicleType:trip=>vehicleTypeName(data,trip.vehicleId),
       driverName,
     });
     const blob=new Blob([buildTripExportXlsx(rows)],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
@@ -1230,15 +1235,22 @@ function Trips({data,drivers=[],profile,onEdit,onDelete}) {
       <select aria-label="Filtrar por estado" value={filters.status} onChange={e=>setFilters({...filters,status:e.target.value})}><option value="">Todos los estados</option><option>En ruta</option><option>Finalizado</option></select>
       <button type="button" className="primary trip-export-button" onClick={downloadFilteredTrips} disabled={!filtered.length}>⇩ Descargar Excel ({filtered.length})</button>
     </div>
-    <Table heads={['Salida','Llegada','Vehículo','Chofer','Origen → destino','Odómetro','Total','']}>
+    <Table heads={['Mes-año','Día','Fecha','Conductor','Vehículo','Hora inicio','Hora término','Km inicial','Km final','Km recorrido','Tipo de vehículo','Origen → destino','Estado','Observaciones','']}>
       {filtered.slice().reverse().map(t=><tr key={t.id}>
-        <td>{date(t.departureDate)}<br/><span>{t.departureTime}</span></td>
-        <td>{t.endKm !== null && t.endKm !== undefined && t.endKm !== '' ? <>{date(t.returnDate)}<br/><span>{t.returnTime || '—'}</span></> : <span className="badge warn">En ruta</span>}</td>
-        <td>{vehicleName(data,t.vehicleId)}</td>
+        <td>{monthYear(t.departureDate)}</td>
+        <td>{weekday(t.departureDate)}</td>
+        <td>{date(t.departureDate)}</td>
         <td><div className="trip-driver-evidence"><b className="trip-driver-name">{driverName(t)}</b><div className="trip-evidence-actions"><button type="button" className="text-button" onClick={()=>showOdometerPhoto(t,'departure')}>Foto salida</button>{t.endKm&&<button type="button" className="text-button" onClick={()=>showOdometerPhoto(t,'return')}>Foto llegada</button>}</div></div></td>
-        <td><div className="trip-route"><div><small>Origen</small><span>{t.origin || 'No registrado'}</span></div><i>→</i><div><small>Destino</small><span>{t.destination || 'Pendiente'}</span></div></div></td>
-        <td>{t.startKm} → {t.endKm || 'Pendiente'}{String(t.notes || '').includes('ingresado manualmente') && <><br/><span className="badge warn">Km manual · revisar foto</span></>}</td>
+        <td>{vehicleName(data,t.vehicleId)}</td>
+        <td>{t.departureTime || '—'}</td>
+        <td>{t.endKm !== null && t.endKm !== undefined && t.endKm !== '' ? (t.returnTime || '—') : '—'}</td>
+        <td>{t.startKm || '—'}</td>
+        <td>{t.endKm || '—'}</td>
         <td>{t.endKm ? `${Number(t.endKm)-Number(t.startKm)} km` : <span className="badge warn">En ruta</span>}</td>
+        <td>{vehicleTypeName(data,t.vehicleId)}</td>
+        <td><div className="trip-route"><div><small>Origen</small><span>{t.origin || 'No registrado'}</span></div><i>→</i><div><small>Destino</small><span>{t.destination || 'Pendiente'}</span></div></div></td>
+        <td>{t.endKm ? 'Finalizado' : 'En ruta'}</td>
+        <td>{t.notes || '—'}{String(t.notes || '').includes('ingresado manualmente') && <><br/><span className="badge warn">Km manual · revisar foto</span></>}</td>
         <td><Actions onEdit={()=>onEdit(t)} onDelete={()=>onDelete(t)}/></td>
       </tr>)}
     </Table>

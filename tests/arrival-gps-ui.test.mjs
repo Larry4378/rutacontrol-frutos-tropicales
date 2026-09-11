@@ -111,3 +111,11 @@ test('el mapa único usa el punto vivo de la salida y el icono de la movilidad',
   assert.equal((dashboardSource.match(/<GpsLocationCard/g) || []).length, 1);
   assert.doesNotMatch(dashboardSource, /<RouteMap/);
 });
+
+test('recorridos muestra las columnas derivadas del reporte operativo', () => {
+  const tripsSource = mainSource.slice(mainSource.indexOf('function Trips'), mainSource.indexOf('function Maintenance({data'));
+  for (const header of ['Mes-año', 'Día', 'Fecha', 'Hora inicio', 'Hora término', 'Km inicial', 'Km final', 'Km recorrido', 'Tipo de vehículo', 'Observaciones']) {
+    assert.match(tripsSource, new RegExp(header));
+  }
+  assert.match(mainSource, /vehicleType:trip=>vehicleTypeName\(data,trip\.vehicleId\)/);
+});

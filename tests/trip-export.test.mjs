@@ -19,6 +19,7 @@ const completed = {
 
 const labels = {
   vehicleName: trip => trip.vehicleId === 'vehicle-1' ? '8588 - KP' : 'Otra unidad',
+  vehicleType: trip => trip.vehicleId === 'vehicle-1' ? 'Moto' : 'Carro',
   driverName: trip => trip.driver === 'driver-1' ? 'LARRY ESTEVES' : 'Otro conductor',
 };
 
@@ -26,19 +27,18 @@ test('exporta todos los datos visibles de un recorrido finalizado', () => {
   const [row] = buildTripExportRows([completed], labels);
   assert.equal(row.length, TRIP_EXPORT_HEADERS.length);
   assert.deepEqual(row, [
-    '30/08/2026', '08:10:12', '30/08/2026', '10:25:30',
-    '8588 - KP', 'LARRY ESTEVES', 'Huacho', 'Végueta',
-    118000, 118067, 67, 'Finalizado', 'Entrega terminada',
+    '08/2026', 'domingo', '30/08/2026', 'LARRY ESTEVES', '8588 - KP',
+    '08:10:12', '10:25:30', 118000, 118067, 67, 'Moto',
+    'Huacho', 'Végueta', 'Finalizado', 'Entrega terminada',
   ]);
 });
 
 test('un recorrido pendiente conserva vacíos los datos de llegada', () => {
   const [row] = buildTripExportRows([{ ...completed, returnDate: '', returnTime: '', endKm: '', destination: '' }], labels);
-  assert.equal(row[2], '');
-  assert.equal(row[3], '');
+  assert.equal(row[6], '');
+  assert.equal(row[8], '');
   assert.equal(row[9], '');
-  assert.equal(row[10], '');
-  assert.equal(row[11], 'En ruta');
+  assert.equal(row[13], 'En ruta');
 });
 
 test('el CSV abre por columnas en Excel y neutraliza fórmulas', () => {
@@ -46,14 +46,14 @@ test('el CSV abre por columnas en Excel y neutraliza fórmulas', () => {
   const csv = buildTripExportCsv(rows);
   assert.ok(csv.startsWith('\ufeffsep=;\r\n'));
   assert.match(csv, /"'=HIPERVINCULO\(""sitio""\)"/);
-  assert.match(csv, /118000;118067;67;"Finalizado"/);
+  assert.match(csv, /118000;118067;67;"Moto";"'=HIPERVINCULO/);
 });
 
 test('el XLSX conserva filtros desplegables y encabezado inmovilizado', () => {
   const bytes = buildTripExportXlsx(buildTripExportRows([completed], labels));
   const workbook = XLSX.read(bytes, { type: 'array' });
   const worksheet = workbook.Sheets.Recorridos;
-  assert.equal(worksheet['!autofilter'].ref, 'A1:M2');
-  assert.equal(worksheet.A1.v, 'Fecha de salida');
-  assert.equal(worksheet.M2.v, 'Entrega terminada');
+  assert.equal(worksheet['!autofilter'].ref, 'A1:O2');
+  assert.equal(worksheet.A1.v, 'Mes-año');
+  assert.equal(worksheet.O2.v, 'Entrega terminada');
 });
