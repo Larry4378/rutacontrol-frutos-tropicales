@@ -750,93 +750,14 @@ function Login({ onLogin, onDriverLogin, error, webAppInstalled, onInstall }) {
   const savedDriverCode = localStorage.getItem('rutacontrol_driver_code') || '';
   return <section className="login-screen"><form className="login-card" onSubmit={submit}><div className="login-fruit">●</div><p className="eyebrow">FRUTOS TROPICALES EXPORT. PERÚ</p><h1>{driverMode?'Acceso de conductor':'Acceso administrativo'}</h1><p>{driverMode?'Ingresa el código y PIN entregados por el administrador.':'Ingresa con tu correo y contraseña de administrador.'}</p>{driverMode?<><label>Código de acceso</label><input name="accessCode" required autoFocus defaultValue={savedDriverCode} placeholder="Ejemplo: RGARCIA" pattern="[A-Za-z0-9_-]{4,20}"/><label>PIN de 6 números</label><input name="pin" required type="password" inputMode="numeric" pattern="\d{6}" maxLength="6" placeholder="••••••"/><label className="remember-driver"><input type="checkbox" checked={rememberDriver} onChange={event=>setRememberDriver(event.target.checked)}/> Recordar mi código en este equipo</label></>:<><label>Correo electrónico</label><input name="email" type="email" required autoFocus placeholder="correo@empresa.com"/><label>Contraseña</label><input name="password" type="password" required minLength="6" placeholder="Mínimo 6 caracteres"/></>}<p className="login-error">{error}</p><button className="primary">{driverMode?'Ingresar como conductor':'Ingresar como administrador'}</button><PwaInstallButton installed={webAppInstalled} onInstall={onInstall}/>{!driverMode&&<button type="button" className="secondary" onClick={()=>window.location.assign(window.location.pathname)}>Volver al acceso de conductor</button>}<small>Acceso protegido por Supabase.</small></form></section>;
 }
-function Dashboard({ data, profile, driverPreview, permissions, assignmentReady, onDeparture, onReturn, onTripUpdate, tripForm }) { return <>{(permissions.departure||permissions.arrival)&&<MangoQuickActions permissions={permissions} ready={assignmentReady} onDeparture={onDeparture} onReturn={onReturn}/>} {assignmentReady ? tripForm : null}<GpsLocationCard data={data}/><RouteMap data={data} profile={profile} driverPreview={driverPreview} onUpdate={onTripUpdate}/></>; }
+function Dashboard({ data, profile, driverPreview, permissions, assignmentReady, onDeparture, onReturn, onTripUpdate, tripForm }) { return <>{(permissions.departure||permissions.arrival)&&<MangoQuickActions permissions={permissions} ready={assignmentReady} onDeparture={onDeparture} onReturn={onReturn}/>} {assignmentReady ? tripForm : null}<GpsLocationCard data={data} profile={profile} driverPreview={driverPreview} onUpdate={onTripUpdate}/></>; }
 
-function GpsLocationCard({ data }) {
-  const activeTrip = data?.trips?.find(isTripOpen);
-  const vehicle = data?.vehicles?.find(item => String(item.id) === String(activeTrip?.vehicleId));
-  const storedPoint = activeTrip?.routePoints?.at(-1) || null;
-  const mapNode = useRef(null);
-  const map = useRef(null);
-  const marker = useRef(null);
-  const accuracyCircle = useRef(null);
-  const autoRequested = useRef(false);
-  const [point, setPoint] = useState(storedPoint);
-  const [loading, setLoading] = useState(true);
-  const [status, setStatus] = useState('Obteniendo ubicación GPS…');
-
-  const refresh = () => {
-    if (!navigator.geolocation) {
-      setLoading(false);
-      setStatus('Este navegador no permite obtener GPS.');
-      return;
-    }
-    setLoading(true);
-    setStatus('Obteniendo ubicación GPS…');
-    getPreciseGpsPosition(navigator.geolocation).then(position => {
-      const { latitude, longitude, accuracy } = position.coords;
-      setPoint({ lat: latitude, lng: longitude, accuracy: Math.round(accuracy), timestamp: Date.now(), at: new Date().toISOString() });
-      setLoading(false);
-      setStatus('Señal GPS obtenida');
-    }).catch(error => {
-      setLoading(false);
-      setStatus(error?.accuracy ? `Señal GPS débil · precisión ±${error.accuracy} m` : 'No se pudo obtener la ubicación. Activa el GPS e inténtalo nuevamente.');
-    });
-  };
-
-  // Cuando hay una salida abierta, el punto proviene del mismo seguimiento
-  // continuo que usa el mapa de recorridos. No se crea un segundo rastreador
-  // que pueda competir por la ubicación o gastar batería innecesariamente.
-  useEffect(() => {
-    if (!activeTrip || !storedPoint) return;
-    setPoint(storedPoint);
-    setLoading(false);
-    setStatus('GPS en vivo · ubicación actualizada');
-  }, [activeTrip?.id, storedPoint?.timestamp]);
-
-  useEffect(() => {
-    if (!mapNode.current || map.current) return;
-    map.current = L.map(mapNode.current, { zoomControl: false, attributionControl: false }).setView([-5.1945, -80.6328], 13);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap contributors', maxNativeZoom: 19, maxZoom: 20 }).addTo(map.current);
-    L.control.zoom({ position: 'bottomright' }).addTo(map.current);
-    L.control.attribution({ position: 'bottomleft', prefix: '© OpenStreetMap' }).addTo(map.current);
-    return () => { map.current?.remove(); map.current = null; };
-  }, []);
-
-  useEffect(() => {
-    if (!point || !map.current) return;
-    const location = [point.lat, point.lng];
-    const symbol = String(vehicle?.vehicle_type || '').toLowerCase().includes('moto') ? '🏍️' : '🚗';
-    if (activeTrip) {
-      const icon = L.divIcon({ className: 'gps-vehicle-icon', html: `<span title="${symbol === '🏍️' ? 'Motocicleta' : 'Vehículo'} en ruta">${symbol}</span>`, iconSize: [42, 42], iconAnchor: [21, 21] });
-      if (!marker.current || marker.current.options.icon?.options?.className !== 'gps-vehicle-icon') {
-        marker.current?.remove();
-        marker.current = L.marker(location, { icon }).addTo(map.current);
-      } else marker.current.setLatLng(location);
-    } else if (!marker.current) marker.current = L.circleMarker(location, { radius: 10, color: '#149fd2', weight: 4, fillColor: '#20b8e8', fillOpacity: 1 }).addTo(map.current);
-    else marker.current.setLatLng(location);
-    if (!accuracyCircle.current) accuracyCircle.current = L.circle(location, { radius: Math.max(accuracyFromPoint(point), 10), color: '#149fd2', weight: 2, fillColor: '#20b8e8', fillOpacity: .16 }).addTo(map.current);
-    else { accuracyCircle.current.setLatLng(location); accuracyCircle.current.setRadius(Math.max(accuracyFromPoint(point), 10)); }
-    map.current.setView(location, 18, { animate: true });
-    window.setTimeout(() => map.current?.invalidateSize(), 80);
-  }, [point, activeTrip?.id, vehicle?.vehicle_type]);
-
-  useEffect(() => {
-    if (activeTrip || autoRequested.current) return;
-    autoRequested.current = true;
-    refresh();
-  }, [activeTrip?.id]);
-
-  const mapsUrl = googleMapsLocationUrl(point);
-  return <section className="gps-location-card">
-    <div className="gps-location-head"><div><h2>⌖ Su ubicación GPS</h2><p>Confirma el punto exacto antes de registrar el movimiento.</p></div><button type="button" className="gps-refresh-button" onClick={refresh} disabled={loading}>↻ Actualizar</button></div>
-    <div ref={mapNode} className="gps-location-map" aria-label="Mapa de su ubicación GPS" />
-    <div className="gps-signal-grid"><span>⌁ {status}</span>{point && <span>▥ Señal {point.accuracy <= 18 ? 'buena' : 'aceptable'} · ±{point.accuracy} m</span>}</div>
-    {point && <div className="gps-location-footer"><span>Lat {point.lat.toFixed(6)} · Lng {point.lng.toFixed(6)}</span>{mapsUrl && <a href={mapsUrl} target="_blank" rel="noreferrer">Ver en Google Maps ↗</a>}</div>}
-  </section>;
+// El mapa superior es ahora el único mapa del inicio. Reutiliza el mismo
+// seguimiento que publica y recibe las ubicaciones del recorrido, evitando
+// dos mapas con posiciones distintas para el mismo vehículo.
+function GpsLocationCard({ data, profile, driverPreview, onUpdate }) {
+  return <RouteMap data={data} profile={profile} driverPreview={driverPreview} onUpdate={onUpdate} gpsPresentation />;
 }
-
-const accuracyFromPoint = point => Number.isFinite(Number(point?.accuracy)) ? Number(point.accuracy) : 20;
 
 function MaintenanceAlerts({data, profile, driverPreview, onGo}) {
   const alerts = useMemo(() => {
@@ -869,7 +790,7 @@ function MaintenanceAlerts({data, profile, driverPreview, onGo}) {
   return <section className="panel maintenance-alerts"><div className="section-head"><div><p className="eyebrow">MANTENIMIENTO</p><h2>Alertas de mantenimiento</h2><p>Se activan únicamente por el próximo kilometraje programado.</p></div><button className="text-button" onClick={() => onGo('maintenance')}>Ver mantenimiento</button></div><div className="maintenance-alert-list">{alerts.map(alert => { const detail=alert.kmRemaining <= 0 ? `Kilometraje alcanzado: ${kmText(alert.kmNow)} km de ${kmText(alert.maintenance.nextKm)} km` : `Faltan ${kmText(alert.kmRemaining)} km: ${kmText(alert.kmNow)} de ${kmText(alert.maintenance.nextKm)} km`; return <article key={alert.vehicle.id} className={`maintenance-alert ${alert.due ? 'due' : 'soon'}`}><span className="maintenance-alert-icon">{alert.due ? '!' : '◷'}</span><div><b>{alert.vehicle.plate} · {alert.vehicle.brand} {alert.vehicle.model}</b><p>{alert.due ? 'Mantenimiento pendiente.' : 'Mantenimiento próximo.'} {detail}</p></div></article>; })}</div></section>;
 }
 function MangoQuickActions({permissions,ready,onDeparture,onReturn}) { return <section className="mango-actions"><div><p className="eyebrow">ACCESO RÁPIDO</p><h2>¿El vehículo sale o llega?</h2><p>{ready?'Registra el movimiento con un toque.':'Cargando tu conductor y vehículo asignado…'}</p></div><div className="mango-buttons">{permissions.departure&&<button className="mango-button departure" disabled={!ready} onClick={onDeparture}><i className="mango-fruit"/><span>Registrar<br/><b>Salida</b></span></button>}{permissions.arrival&&<button className="mango-button arrival" disabled={!ready} onClick={onReturn}><i className="mango-fruit"/><span>Registrar<br/><b>Llegada</b></span></button>}</div></section>; }
-function RouteMap({ data, profile, driverPreview, onUpdate }) {
+function RouteMap({ data, profile, driverPreview, onUpdate, gpsPresentation = false }) {
   const active = data.trips.find(isTripOpen);
   // El usuario que abrió el viaje es responsable de transmitir el GPS, aunque
   // haya seleccionado a otro conductor como responsable visible del recorrido.
@@ -1222,7 +1143,21 @@ function RouteMap({ data, profile, driverPreview, onUpdate }) {
     window.setTimeout(() => { automaticMapMove.current = false; }, 750);
   };
 
-  return <section className={`route-section route-navigation ${active ? 'has-active-trip' : 'no-active-trip'}`}><div className="section-head route-section-title"><div><p className="eyebrow">SEGUIMIENTO</p><h2>{active ? 'Ubicación en tiempo real' : 'Mapa de recorridos'}</h2><p>{active ? `Movilidad ${vehicleName(data, active.vehicleId)} en ruta. Puedes explorar el mapa libremente.` : 'El mapa se ampliará automáticamente cuando inicies una salida.'}</p></div>{active && <span className="tracking-badge">● GPS en vivo</span>}</div><div className="route-map-shell"><div ref={mapNode} className="route-map" />{active && <><div className="route-map-status"><span className="route-live-dot" /><div><b>{vehicleName(data, active.vehicleId)}</b><small>{isTripDriver && tracking ? 'Enviando ubicación' : 'Ubicación del chofer'}</small></div></div><button type="button" className="map-recenter-button" onClick={focusVehicle} title="Volver a mi vehículo" aria-label="Volver a mi vehículo">⌖</button></>}</div><p className="route-note">{message}</p></section>;
+  const refreshMap = () => {
+    if (livePointRef.current || record.current?.routePoints?.length) focusVehicle();
+    else map.current?.invalidateSize();
+  };
+  const currentPoint = livePoint || active?.routePoints?.at(-1);
+  const mapsUrl = googleMapsLocationUrl(currentPoint);
+  return <section className={`route-section route-navigation ${gpsPresentation ? 'gps-location-card gps-live-map-card' : ''} ${active ? 'has-active-trip' : 'no-active-trip'}`}>
+    <div className={`section-head route-section-title ${gpsPresentation ? 'gps-location-head' : ''}`}>
+      <div><p className="eyebrow">SEGUIMIENTO</p><h2>{gpsPresentation ? '⌖ Su ubicación GPS' : (active ? 'Ubicación en tiempo real' : 'Mapa de recorridos')}</h2><p>{active ? `Movilidad ${vehicleName(data, active.vehicleId)} en ruta. Puedes explorar el mapa libremente.` : 'El mapa se ampliará automáticamente cuando inicies una salida.'}</p></div>
+      <div className="gps-map-actions">{active && <span className="tracking-badge">● GPS en vivo</span>}{gpsPresentation && <button type="button" className="gps-refresh-button" onClick={refreshMap}>↻ Actualizar</button>}</div>
+    </div>
+    <div className={`route-map-shell ${gpsPresentation ? 'gps-location-map' : ''}`}><div ref={mapNode} className="route-map" aria-label="Mapa de ubicación GPS en tiempo real" />{active && <><div className="route-map-status"><span className="route-live-dot" /><div><b>{vehicleName(data, active.vehicleId)}</b><small>{isTripDriver && tracking ? 'Enviando ubicación' : 'Ubicación del chofer'}</small></div></div><button type="button" className="map-recenter-button" onClick={focusVehicle} title="Volver a mi vehículo" aria-label="Volver a mi vehículo">⌖</button></>}</div>
+    <div className="gps-location-footer">{currentPoint && <span>Lat {Number(currentPoint.lat).toFixed(6)} · Lng {Number(currentPoint.lng).toFixed(6)}</span>}{mapsUrl && <a href={mapsUrl} target="_blank" rel="noreferrer">Ver en Google Maps ↗</a>}</div>
+    <p className="route-note">{message}</p>
+  </section>;
 }
 function Metric({label,value,note}) { return <div className="metric"><span className="metric-label">{label}</span><div className="metric-value">{value}</div><small>{note}</small></div>; }
 function List({title,text,onAdd,hideAdd=false,children}) { return <section><div className="section-head"><div><h2>{title}</h2><p>{text}</p></div>{!hideAdd&&<button className="primary" onClick={onAdd}>+ Agregar</button>}</div>{children}</section>; }

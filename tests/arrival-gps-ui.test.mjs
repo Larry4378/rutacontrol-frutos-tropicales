@@ -93,18 +93,21 @@ test('si el GPS falla muestra un aviso nativo para activar la ubicación', () =>
   assert.match(arrivalSource, /Activa la ubicación \(GPS\) de tu celular/);
 });
 
-test('el inicio muestra la tarjeta GPS con mapa, precisión y enlace a Google Maps', () => {
-  assert.match(mainSource, /function GpsLocationCard\(\{ data \}\)/);
+test('el inicio muestra un único mapa GPS de seguimiento y enlace a Google Maps', () => {
+  assert.match(mainSource, /function GpsLocationCard\(\{ data, profile, driverPreview, onUpdate \}\)/);
   assert.match(mainSource, /gps-location-map/);
   assert.match(mainSource, /gps-refresh-button/);
   assert.match(mainSource, /Ver en Google Maps ↗/);
-  assert.match(mainSource, /<GpsLocationCard data=\{data\}\/\>/);
+  assert.match(mainSource, /<GpsLocationCard data=\{data\} profile=\{profile\} driverPreview=\{driverPreview\} onUpdate=\{onTripUpdate\}\/\>/);
 });
 
-test('la tarjeta GPS usa el punto vivo de la salida y el icono de la movilidad', () => {
-  assert.match(mainSource, /const activeTrip = data\?\.trips\?\.find\(isTripOpen\)/);
-  assert.match(mainSource, /const storedPoint = activeTrip\?\.routePoints\?\.at\(-1\)/);
-  assert.match(mainSource, /GPS en vivo · ubicación actualizada/);
-  assert.match(mainSource, /gps-vehicle-icon/);
-  assert.match(mainSource, /vehicle\?\.vehicle_type/);
+test('el mapa único usa el punto vivo de la salida y el icono de la movilidad', () => {
+  assert.match(mainSource, /function RouteMap\(\{ data, profile, driverPreview, onUpdate, gpsPresentation = false \}\)/);
+  assert.match(mainSource, /const active = data\.trips\.find\(isTripOpen\)/);
+  assert.match(mainSource, /const latest = livePoint \|\| storedLast/);
+  assert.match(mainSource, /moving-vehicle-icon/);
+  assert.match(mainSource, /vehicle-map-pin/);
+  const dashboardSource = mainSource.slice(mainSource.indexOf('function Dashboard'), mainSource.indexOf('\n\n// El mapa superior'));
+  assert.equal((dashboardSource.match(/<GpsLocationCard/g) || []).length, 1);
+  assert.doesNotMatch(dashboardSource, /<RouteMap/);
 });
