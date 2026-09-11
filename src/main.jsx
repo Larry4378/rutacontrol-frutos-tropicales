@@ -19,6 +19,7 @@ const read = () => JSON.parse(localStorage.getItem('rutacontrol-react') || local
 const id = () => crypto.randomUUID();
 const date = value => value ? new Intl.DateTimeFormat('es-PE', { dateStyle: 'medium' }).format(new Date(`${value}T12:00:00`)) : '—';
 const dateValue = value => String(value || '').match(/^\d{4}-\d{2}-\d{2}$/) ? new Date(`${value}T12:00:00`) : null;
+const weekNumber = value => { const parsed = dateValue(value); if (!parsed) return '—'; const utcDate = new Date(Date.UTC(parsed.getFullYear(), parsed.getMonth(), parsed.getDate())); const day = utcDate.getUTCDay() || 7; utcDate.setUTCDate(utcDate.getUTCDate() + 4 - day); const yearStart = new Date(Date.UTC(utcDate.getUTCFullYear(), 0, 1)); return Math.ceil((((utcDate - yearStart) / 86400000) + 1) / 7); };
 const monthYear = value => { const parsed = dateValue(value); return parsed ? `${String(parsed.getMonth() + 1).padStart(2, '0')}/${parsed.getFullYear()}` : '—'; };
 const weekday = value => { const parsed = dateValue(value); return parsed ? new Intl.DateTimeFormat('es-PE', { weekday: 'long' }).format(parsed) : '—'; };
 const gpsCoordinates = point => Number.isFinite(Number(point?.lat)) && Number.isFinite(Number(point?.lng)) ? `${Number(point.lat).toFixed(6)}, ${Number(point.lng).toFixed(6)}` : '';
@@ -1238,8 +1239,9 @@ function Trips({data,drivers=[],profile,onEdit,onDelete}) {
       <select aria-label="Filtrar por estado" value={filters.status} onChange={e=>setFilters({...filters,status:e.target.value})}><option value="">Todos los estados</option><option>En ruta</option><option>Finalizado</option></select>
       <button type="button" className="primary trip-export-button" onClick={downloadFilteredTrips} disabled={!filtered.length}>⇩ Descargar Excel ({filtered.length})</button>
     </div>
-    <Table heads={['Mes-año','Día','Fecha','Conductor','Vehículo','Hora inicio','Hora término','Km inicial','Km final','Km recorrido','Tipo de vehículo','Origen → destino','Estado','Observaciones','']}>
+    <Table heads={['Semana','Mes-año','Día','Fecha','Conductor','Vehículo','Hora inicio','Hora término','Km inicial','Km final','Km recorrido','Tipo de vehículo','Origen → destino','Estado','Observaciones','']}>
       {filtered.slice().reverse().map(t=><tr key={t.id}>
+        <td>{weekNumber(t.departureDate)}</td>
         <td>{monthYear(t.departureDate)}</td>
         <td>{weekday(t.departureDate)}</td>
         <td>{date(t.departureDate)}</td>

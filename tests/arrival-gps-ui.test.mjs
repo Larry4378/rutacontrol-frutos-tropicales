@@ -127,3 +127,10 @@ test('recorridos muestra las coordenadas GPS debajo de origen y destino', () => 
   assert.match(mainSource, /tripDestinationGps\(t\)/);
   assert.match(tripsSource, /className="trip-gps-coordinates"/);
 });
+
+test('recorridos calcula y muestra el número de semana antes de mes-año', () => {
+  const tripsSource = mainSource.slice(mainSource.indexOf('function Trips'), mainSource.indexOf('function Maintenance({data'));
+  assert.match(mainSource, /const weekNumber = value =>/);
+  assert.match(tripsSource, /heads=\{\['Semana','Mes-año'/);
+  assert.match(tripsSource, /<td>\{weekNumber\(t\.departureDate\)\}<\/td>/);
+});

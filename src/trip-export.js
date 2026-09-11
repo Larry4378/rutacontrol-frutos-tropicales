@@ -1,6 +1,7 @@
 import * as XLSX from 'xlsx';
 
 export const TRIP_EXPORT_HEADERS = [
+  'Semana',
   'Mes-año',
   'Día de la semana',
   'Fecha',
@@ -37,6 +38,16 @@ const excelMonthYear = value => {
   return date ? `${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()}` : '';
 };
 
+const excelWeekNumber = value => {
+  const date = dateObject(value);
+  if (!date) return '';
+  const utcDate = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const day = utcDate.getUTCDay() || 7;
+  utcDate.setUTCDate(utcDate.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(utcDate.getUTCFullYear(), 0, 1));
+  return Math.ceil((((utcDate - yearStart) / 86400000) + 1) / 7);
+};
+
 const excelWeekday = value => {
   const date = dateObject(value);
   return date ? new Intl.DateTimeFormat('es-PE', { weekday: 'long' }).format(date) : '';
@@ -55,6 +66,7 @@ export const buildTripExportRows = (trips, { vehicleName, driverName, vehicleTyp
     ? Math.max(0, endKm - startKm)
     : '';
   return [
+    excelWeekNumber(trip.departureDate),
     excelMonthYear(trip.departureDate),
     excelWeekday(trip.departureDate),
     excelDate(trip.departureDate),

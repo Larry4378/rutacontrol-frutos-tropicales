@@ -31,7 +31,7 @@ test('exporta todos los datos visibles de un recorrido finalizado', () => {
   const [row] = buildTripExportRows([completed], labels);
   assert.equal(row.length, TRIP_EXPORT_HEADERS.length);
   assert.deepEqual(row, [
-    '08/2026', 'domingo', '30/08/2026', 'LARRY ESTEVES', '8588 - KP',
+    35, '08/2026', 'domingo', '30/08/2026', 'LARRY ESTEVES', '8588 - KP',
     '08:10:12', '10:25:30', 118000, 118067, 67, 'Moto',
     'Huacho', 'Végueta', '-5.203736, -80.634472', '-5.207033, -80.637222', 'Finalizado', 'Entrega terminada',
   ]);
@@ -39,11 +39,11 @@ test('exporta todos los datos visibles de un recorrido finalizado', () => {
 
 test('un recorrido pendiente conserva vacíos los datos de llegada', () => {
   const [row] = buildTripExportRows([{ ...completed, returnDate: '', returnTime: '', endKm: '', destination: '' }], labels);
-  assert.equal(row[6], '');
-  assert.equal(row[8], '');
+  assert.equal(row[7], '');
   assert.equal(row[9], '');
-  assert.equal(row[14], '');
-  assert.equal(row[15], 'En ruta');
+  assert.equal(row[10], '');
+  assert.equal(row[15], '');
+  assert.equal(row[16], 'En ruta');
 });
 
 test('el CSV abre por columnas en Excel y neutraliza fórmulas', () => {
@@ -58,7 +58,7 @@ test('el XLSX conserva filtros desplegables y encabezado inmovilizado', () => {
   const bytes = buildTripExportXlsx(buildTripExportRows([completed], labels));
   const workbook = XLSX.read(bytes, { type: 'array' });
   const worksheet = workbook.Sheets.Recorridos;
-  assert.equal(worksheet['!autofilter'].ref, 'A1:Q2');
-  assert.equal(worksheet.A1.v, 'Mes-año');
-  assert.equal(worksheet.Q2.v, 'Entrega terminada');
+  assert.equal(worksheet['!autofilter'].ref, 'A1:R2');
+  assert.equal(worksheet.A1.v, 'Semana');
+  assert.equal(worksheet.R2.v, 'Entrega terminada');
 });
