@@ -47,6 +47,15 @@ const fortnightLabel = key => {
   if (!match) return 'Sin periodo';
   return `${match[3] === '1' ? '1.ª quincena' : '2.ª quincena'} · ${match[2]}/${match[1]}`;
 };
+const monthKey = value => {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})/);
+  return match ? `${match[1]}-${match[2]}` : '';
+};
+const monthLabel = key => {
+  const match = String(key || '').match(/^(\d{4})-(\d{2})$/);
+  if (!match) return 'Mes sin fecha';
+  return new Intl.DateTimeFormat('es-PE', { month: 'long', year: 'numeric' }).format(new Date(`${key}-01T12:00:00`));
+};
 const normalizePlace = value => String(value || '')
   .toLocaleLowerCase('es-PE')
   .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -1267,52 +1276,52 @@ function Trips({data,drivers=[],profile,onEdit,onDelete}) {
 }
 function Maintenance({data,onEdit,onDelete}) { return <Table heads={['Fecha','Vehículo','Servicio','Próxima fecha / km','']} >{data.maintenance.slice().reverse().map(x=><tr key={x.id}><td>{date(x.date)}</td><td>{vehicleName(data,x.vehicleId)}</td><td>{x.type}</td><td>{x.nextDate || '—'} {x.nextKm ? ` / ${x.nextKm} km` : ''}</td><td><Actions onEdit={()=>onEdit(x)} onDelete={()=>onDelete(x)}/></td></tr>)}</Table>; }
 function FuelKpi({ data }) {
-  const [periodFilter, setPeriodFilter] = useState('');
+  const [monthFilter, setMonthFilter] = useState('');
   const [vehicleFilter, setVehicleFilter] = useState('');
   const rows = data.fuels.slice().sort((a,b) => `${b.date||''}${b.time||''}`.localeCompare(`${a.date||''}${a.time||''}`));
-  const periods = [...new Set(rows.map(record => fortnightKey(record.date)).filter(Boolean))].sort().reverse();
-  const fortnightRows = useMemo(() => {
+  const months = [...new Set(rows.map(record => monthKey(record.date)).filter(Boolean))].sort().reverse();
+  const monthlyRows = useMemo(() => {
     const groups = new Map();
-    const getGroup = (vehicleId, period) => {
-      const groupKey = `${vehicleId || 'sin-vehiculo'}|${period}`;
-      if (!groups.has(groupKey)) groups.set(groupKey, { vehicleId, period, km: 0, gallons: 0 });
+    const getGroup = (vehicleId, month) => {
+      const groupKey = `${vehicleId || 'sin-vehiculo'}|${month}`;
+      if (!groups.has(groupKey)) groups.set(groupKey, { vehicleId, month, km: 0, gallons: 0 });
       return groups.get(groupKey);
     };
     data.fuels.forEach(record => {
-      const period = fortnightKey(record.date);
+      const month = monthKey(record.date);
       const gallons = Number(record.gallons);
-      if (!period || !Number.isFinite(gallons) || gallons <= 0) return;
-      getGroup(record.vehicleId, period).gallons += gallons;
+      if (!month || !Number.isFinite(gallons) || gallons <= 0) return;
+      getGroup(record.vehicleId, month).gallons += gallons;
     });
     data.trips.forEach(trip => {
-      const period = fortnightKey(trip.departureDate);
+      const month = monthKey(trip.departureDate);
       const startKm = Number(trip.startKm);
       const endKm = Number(trip.endKm);
-      if (!period || !Number.isFinite(startKm) || !Number.isFinite(endKm) || endKm <= startKm) return;
-      getGroup(trip.vehicleId, period).km += endKm - startKm;
+      if (!month || !Number.isFinite(startKm) || !Number.isFinite(endKm) || endKm <= startKm) return;
+      getGroup(trip.vehicleId, month).km += endKm - startKm;
     });
     return [...groups.values()]
-      .filter(row => (!periodFilter || row.period === periodFilter) && (!vehicleFilter || String(row.vehicleId) === String(vehicleFilter)))
-      .sort((a, b) => `${b.period}|${a.vehicleId || ''}`.localeCompare(`${a.period}|${b.vehicleId || ''}`));
-  }, [data.fuels, data.trips, periodFilter, vehicleFilter]);
+      .filter(row => (!monthFilter || row.month === monthFilter) && (!vehicleFilter || String(row.vehicleId) === String(vehicleFilter)))
+      .sort((a, b) => `${b.month}|${a.vehicleId || ''}`.localeCompare(`${a.month}|${b.vehicleId || ''}`));
+  }, [data.fuels, data.trips, monthFilter, vehicleFilter]);
   return <section className="panel kpi-panel">
-    <div className="panel-title"><div><p className="eyebrow">CONTROL DE RENDIMIENTO</p><h2>Rendimiento Km/Gl · KPI</h2><p>Cruza los kilómetros de Recorridos con los galones registrados en Combustible.</p></div></div>
+    <div className="panel-title"><div><p className="eyebrow">CONTROL DE RENDIMIENTO MENSUAL</p><h2>Rendimiento Km/Gl · KPI</h2><p>Cruza los kilómetros de Recorridos con los galones registrados en Combustible por mes.</p></div></div>
     <div className="maintenance-filters kpi-filters">
-      <select className="filter" aria-label="Filtrar KPI por quincena" value={periodFilter} onChange={event => setPeriodFilter(event.target.value)}>
-        <option value="">Todas las quincenas</option>
-        {periods.map(period => <option key={period} value={period}>{fortnightLabel(period)}</option>)}
+      <select className="filter" aria-label="Filtrar KPI por mes" value={monthFilter} onChange={event => setMonthFilter(event.target.value)}>
+        <option value="">Todos los meses</option>
+        {months.map(month => <option key={month} value={month}>{monthLabel(month)}</option>)}
       </select>
       <select className="filter" aria-label="Filtrar KPI por vehículo" value={vehicleFilter} onChange={event => setVehicleFilter(event.target.value)}>
         <option value="">Todos los vehículos</option>
         {data.vehicles.map(vehicle => <option key={vehicle.id} value={vehicle.id}>{vehicle.plate} · {vehicle.brand}</option>)}
       </select>
     </div>
-    {fortnightRows.length > 0 ? <Table heads={['Periodo','Vehículo','Kilómetros','Galones','Rendimiento','Estado']}>
-      {fortnightRows.map(row => {
+    {monthlyRows.length > 0 ? <Table heads={['Mes','Vehículo','Kilómetros','Galones','Rendimiento','Estado']}>
+      {monthlyRows.map(row => {
         const performance = row.gallons > 0 && row.km > 0 ? row.km / row.gallons : null;
         const status = performance === null ? 'Pendiente de datos' : performance < 35 ? 'Revisar' : 'Dentro del parámetro';
-        return <tr key={`${row.vehicleId || 'sin-vehiculo'}-${row.period}`}>
-          <td>{fortnightLabel(row.period)}</td>
+        return <tr key={`${row.vehicleId || 'sin-vehiculo'}-${row.month}`}>
+          <td>{monthLabel(row.month)}</td>
           <td>{vehicleName(data, row.vehicleId)}</td>
           <td>{row.km > 0 ? row.km.toLocaleString('es-PE', {maximumFractionDigits: 1}) : '—'}</td>
           <td>{row.gallons > 0 ? row.gallons.toLocaleString('es-PE', {maximumFractionDigits: 2}) : '—'}</td>
@@ -1320,8 +1329,8 @@ function FuelKpi({ data }) {
           <td><span className={`badge ${status === 'Dentro del parámetro' ? 'ok' : 'warn'}`}>{status}</span></td>
         </tr>;
       })}
-    </Table> : <p className="empty-message">Aún no hay datos suficientes para calcular el KPI.</p>}
-    <p className="field-help" style={{marginTop: '12px'}}>Referencia inicial: 35 km/galón. Si falta kilometraje o galones, el resultado queda pendiente.</p>
+    </Table> : <p className="empty-message">Aún no hay datos suficientes para calcular el KPI mensual.</p>}
+    <p className="field-help" style={{marginTop: '12px'}}>Referencia inicial: 35 km/galón. El rendimiento mensual se calcula como kilómetros totales del mes ÷ galones totales del mes.</p>
   </section>;
 }
 
