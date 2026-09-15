@@ -108,6 +108,9 @@ test('el mapa único usa el punto vivo de la salida y el icono de la movilidad',
   assert.match(mainSource, /Al confirmar una llegada el viaje deja de estar activo/);
   assert.match(mainSource, /moving-vehicle-icon/);
   assert.match(mainSource, /vehicle-map-pin/);
+  assert.match(mainSource, /ResizeObserver/);
+  assert.match(mainSource, /orientationchange/);
+  assert.match(mainSource, /tiles\.on\('load', refreshMapSize\)/);
   const dashboardSource = mainSource.slice(mainSource.indexOf('function Dashboard'), mainSource.indexOf('\n\n// El mapa superior'));
   assert.equal((dashboardSource.match(/<GpsLocationCard/g) || []).length, 1);
   assert.doesNotMatch(dashboardSource, /<RouteMap/);
