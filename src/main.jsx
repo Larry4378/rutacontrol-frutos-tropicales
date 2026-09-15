@@ -37,16 +37,6 @@ const today = () => { const local = new Date(); local.setMinutes(local.getMinute
 const dateDaysAgo = days => { const local = new Date(); local.setDate(local.getDate() - days); local.setMinutes(local.getMinutes() - local.getTimezoneOffset()); return local.toISOString().slice(0, 10); };
 const isRecentTripDate = value => Boolean(value && value >= dateDaysAgo(2) && value <= today());
 const now = () => new Date().toTimeString().slice(0, 8);
-const fortnightKey = value => {
-  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (!match) return '';
-  return `${match[1]}-${match[2]}-${Number(match[3]) <= 15 ? '1' : '2'}`;
-};
-const fortnightLabel = key => {
-  const match = String(key || '').match(/^(\d{4})-(\d{2})-(1|2)$/);
-  if (!match) return 'Sin periodo';
-  return `${match[3] === '1' ? '1.ª quincena' : '2.ª quincena'} · ${match[2]}/${match[1]}`;
-};
 const monthKey = value => {
   const match = String(value || '').match(/^(\d{4})-(\d{2})/);
   return match ? `${match[1]}-${match[2]}` : '';
@@ -1375,12 +1365,11 @@ function Fuel({data,drivers=[],profile,isAdmin=false,onEdit,onDelete}) {
     return drivers.find(driver => String(driver.id) === String(record.createdBy || ''))?.full_name || 'Chofer';
   };
   return <>
-  <Table heads={[...(isAdmin ? ['Chofer'] : []),'Mes','Fecha','Quincena','Vehículo','Comprobante','Estado','']}>
+  <Table heads={[...(isAdmin ? ['Chofer'] : []),'Mes','Fecha','Vehículo','Comprobante','Estado','']}>
     {rows.map(record => <tr key={record.id}>
       {isAdmin && <td>{driverName(record)}</td>}
       <td>{monthLabel(monthKey(record.date))}</td>
       <td>{date(record.date)}<small className="fuel-product-cell">{record.time || ''}</small></td>
-      <td>{fortnightLabel(fortnightKey(record.date))}</td>
       <td>{vehicleName(data,record.vehicleId)}</td>
       <td><b>{record.provider || 'Comprobante enviado'}</b>{record.product && <small className="fuel-product-cell">{record.product}</small>}{record.receiptPath && <button type="button" className="text-button" onClick={()=>openReceipt(record)}>Ver comprobante</button>}</td>
       <td><span className={`badge ${record.reviewStatus === 'Pendiente de revisión' ? 'warn' : 'ok'}`}>{record.reviewStatus || 'Pendiente de revisión'}</span></td>

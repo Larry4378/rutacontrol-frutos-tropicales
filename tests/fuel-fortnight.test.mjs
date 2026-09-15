@@ -6,13 +6,12 @@ const source = await readFile(new URL('../src/main.jsx', import.meta.url), 'utf8
 
 test('combustible muestra el mes de cada abastecimiento', () => {
   const fuelSource = source.slice(source.indexOf('function Fuel('), source.indexOf('function Expenses'));
-  assert.match(fuelSource, /'Mes','Fecha','Quincena'/);
+  assert.match(fuelSource, /'Mes','Fecha','Vehículo'/);
+  assert.doesNotMatch(fuelSource, /Quincena|fortnight/);
   assert.match(fuelSource, /monthLabel\(monthKey\(record\.date\)\)/);
 });
 
 test('la sección KPI muestra rendimiento mensual cruzando recorridos y galones', () => {
-  assert.match(source, /const fortnightKey = value/);
-  assert.match(source, /Number\(match\[3\]\) <= 15 \? '1' : '2'/);
   assert.match(source, /const monthKey = value/);
   assert.match(source, /data\.trips\.map\(trip => monthKey\(trip\.departureDate\)\)/);
   assert.match(source, /function FuelKpi\(\{ data \}\)/);
