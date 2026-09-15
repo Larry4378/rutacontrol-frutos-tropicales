@@ -1375,9 +1375,10 @@ function Fuel({data,drivers=[],profile,isAdmin=false,onEdit,onDelete}) {
     return drivers.find(driver => String(driver.id) === String(record.createdBy || ''))?.full_name || 'Chofer';
   };
   return <>
-  <Table heads={[...(isAdmin ? ['Chofer'] : []),'Fecha','Quincena','Vehículo','Comprobante','Estado','']}>
+  <Table heads={[...(isAdmin ? ['Chofer'] : []),'Mes','Fecha','Quincena','Vehículo','Comprobante','Estado','']}>
     {rows.map(record => <tr key={record.id}>
       {isAdmin && <td>{driverName(record)}</td>}
+      <td>{monthLabel(monthKey(record.date))}</td>
       <td>{date(record.date)}<small className="fuel-product-cell">{record.time || ''}</small></td>
       <td>{fortnightLabel(fortnightKey(record.date))}</td>
       <td>{vehicleName(data,record.vehicleId)}</td>
