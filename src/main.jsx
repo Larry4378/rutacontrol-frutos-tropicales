@@ -1298,7 +1298,10 @@ function FuelKpi({ data }) {
   const [monthFilter, setMonthFilter] = useState('');
   const [vehicleFilter, setVehicleFilter] = useState('');
   const rows = data.fuels.slice().sort((a,b) => `${b.date||''}${b.time||''}`.localeCompare(`${a.date||''}${a.time||''}`));
-  const months = [...new Set(rows.map(record => monthKey(record.date)).filter(Boolean))].sort().reverse();
+  const months = [...new Set([
+    ...rows.map(record => monthKey(record.date)),
+    ...data.trips.map(trip => monthKey(trip.departureDate)),
+  ].filter(Boolean))].sort().reverse();
   const monthlyRows = useMemo(() => {
     const groups = new Map();
     const getGroup = (vehicleId, month) => {

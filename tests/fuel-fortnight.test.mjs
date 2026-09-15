@@ -8,6 +8,7 @@ test('la sección KPI muestra rendimiento mensual cruzando recorridos y galones'
   assert.match(source, /const fortnightKey = value/);
   assert.match(source, /Number\(match\[3\]\) <= 15 \? '1' : '2'/);
   assert.match(source, /const monthKey = value/);
+  assert.match(source, /data\.trips\.map\(trip => monthKey\(trip\.departureDate\)\)/);
   assert.match(source, /function FuelKpi\(\{ data \}\)/);
   assert.match(source, /Rendimiento Km\/Gl · KPI/);
   assert.match(source, /row\.km \/ row\.gallons/);
