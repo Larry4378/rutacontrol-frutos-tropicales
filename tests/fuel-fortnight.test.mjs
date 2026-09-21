@@ -29,5 +29,6 @@ test('el KPI permite escribir y guardar galones por mes', () => {
   assert.match(source, /function KpiGallonsCell/);
   assert.match(source, /aria-label=\{`Galones de \$\{monthLabel\(row\.month\)\}`\}/);
   assert.match(source, /provider: 'Excel proveedor'/);
+  assert.match(source, /reviewStatus: 'Datos detectados'/);
   assert.match(source, /onSaveGallons=\{saveKpiGallons\}/);
 });

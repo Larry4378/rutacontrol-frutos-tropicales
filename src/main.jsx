@@ -716,7 +716,7 @@ function App() {
       date: manualRecord?.date || `${row.month}-01`,
       provider: 'Excel proveedor',
       gallons,
-      reviewStatus: 'Registrado manualmente',
+      reviewStatus: 'Datos detectados',
     });
     if (saved) setSuccessMessage('Galones mensuales guardados correctamente.');
     return saved;
