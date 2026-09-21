@@ -707,6 +707,20 @@ function App() {
     if (isNativeAndroidLocation()) await stopNativeLocationTracking().catch(() => {});
     await supabase.auth.signOut();
   };
+  const saveKpiGallons = async (row, gallons) => {
+    const manualRecord = data.fuels.find(record => record.provider === 'Excel proveedor' && monthKey(record.date) === row.month && String(record.vehicleId) === String(row.vehicleId));
+    const saved = await update('fuels', {
+      ...(manualRecord || {}),
+      id: manualRecord?.id || id(),
+      vehicleId: row.vehicleId,
+      date: manualRecord?.date || `${row.month}-01`,
+      provider: 'Excel proveedor',
+      gallons,
+      reviewStatus: 'Registrado manualmente',
+    });
+    if (saved) setSuccessMessage('Galones mensuales guardados correctamente.');
+    return saved;
+  };
 
   if (showSplash) return <SplashScreen/>;
   if (!authReady) return <section className="login-screen"><div className="login-card"><p>Conectando con FTP - ODOMETRO…</p></div></section>;
@@ -719,7 +733,7 @@ function App() {
       {view === 'dashboard' && <Dashboard data={data} profile={profile} driverPreview={driverPreview} km={tripsKm} permissions={profile?.role === 'driver' && !driverPreview ? driverPermissions : {departure:true,arrival:true}} assignmentReady={profileReady && vehiclesReady} driverName={profile?.role === 'driver' ? profile.full_name : ''} onGo={setView} onDeparture={() => setModal({type:'quickDeparture'})} onReturn={() => setModal({type:'quickReturn'})} onTripUpdate={record => update('trips',record)} tripForm={modal?.type === 'quickDeparture' ? <DepartureGpsRequired data={data} drivers={tripDrivers} driverName={profile?.role === 'driver' ? profile.full_name : ''} driverId={profile?.role === 'driver' && !driverPreview ? profile.id : ''} assignedVehicleId={profile?.role === 'driver' && !driverPreview ? profile.permissions?.assignedVehicleId : ''} assignedVehicleLabel={profile?.role === 'driver' && !driverPreview ? profile.permissions?.assignedVehicleLabel : ''} onClose={() => setModal(null)} onSave={async record => { const saved={...record,...(window.departureEvidence||{}),departureTime:now()}; const registered=await update('trips',saved); if(registered){setModal(null);setSuccessMessage('Salida registrada correctamente.');} return registered; }} /> : modal?.type === 'quickReturn' ? <ArrivalSimple data={data} driverName={profile?.role === 'driver' && !driverPreview ? profile.full_name : ''} driverId={profile?.role === 'driver' && !driverPreview ? profile.id : ''} onClose={() => setModal(null)} onSave={async record => { const registered=await update('trips',{...record,returnTime:now()}); if(registered){setModal(null);setSuccessMessage('Llegada registrada correctamente.');} return registered; }} /> : null} />}
       {view === 'trips' && <List title="Historial de recorridos" text="Consulta, filtra y edita las salidas y llegadas registradas." hideAdd><Trips data={data} drivers={tripHistoryDrivers} profile={profile} onEdit={record => setModal({type:'trip',record})} onDelete={record => remove('trips',record.id)} /></List>}
       {view === 'fuel' && <List title="Control de combustible" text={profile?.role === 'admin' && !driverPreview ? 'Revisa los comprobantes enviados por toda la flota.' : 'Envía tu comprobante y consulta los que ya registraste.'} onAdd={() => setModal({type:'fuel'})}><Fuel data={data} drivers={drivers} profile={profile} isAdmin={profile?.role === 'admin' && !driverPreview} onEdit={record => setModal({type:'fuel',record})} onDelete={record => remove('fuels',record.id)} /></List>}
-      {view === 'kpi' && ((profile?.role === 'admin' && !driverPreview) || (profile?.role === 'driver' && driverPermissions.kpi)) && <FuelKpi data={data} />}
+      {view === 'kpi' && ((profile?.role === 'admin' && !driverPreview) || (profile?.role === 'driver' && driverPermissions.kpi)) && <FuelKpi data={data} onSaveGallons={saveKpiGallons} />}
       {view === 'vehicles' && <List title="Vehículos" text="Administra placa, odómetro y estado." onAdd={() => setModal({type:'vehicle'})}><Vehicles data={data} onEdit={record => setModal({type:'vehicle',record})} onDelete={record => remove('vehicles',record)} /></List>}
       {view === 'reports' && <Reports data={data} />}
       {view === 'users' && <UsersPage drivers={drivers} vehicles={data.vehicles} onChanged={loadUsers}/>}
@@ -1284,7 +1298,7 @@ function Trips({data,drivers=[],profile,onEdit,onDelete}) {
   </>;
 }
 function Maintenance({data,onEdit,onDelete}) { return <Table heads={['Fecha','Vehículo','Servicio','Próxima fecha / km','']} >{data.maintenance.slice().reverse().map(x=><tr key={x.id}><td>{date(x.date)}</td><td>{vehicleName(data,x.vehicleId)}</td><td>{x.type}</td><td>{x.nextDate || '—'} {x.nextKm ? ` / ${x.nextKm} km` : ''}</td><td><Actions onEdit={()=>onEdit(x)} onDelete={()=>onDelete(x)}/></td></tr>)}</Table>; }
-function FuelKpi({ data }) {
+function FuelKpi({ data, onSaveGallons }) {
   const [monthFilter, setMonthFilter] = useState('');
   const [vehicleFilter, setVehicleFilter] = useState('');
   const rows = data.fuels.slice().sort((a,b) => `${b.date||''}${b.time||''}`.localeCompare(`${a.date||''}${a.time||''}`));
@@ -1296,14 +1310,19 @@ function FuelKpi({ data }) {
     const groups = new Map();
     const getGroup = (vehicleId, month) => {
       const groupKey = `${vehicleId || 'sin-vehiculo'}|${month}`;
-      if (!groups.has(groupKey)) groups.set(groupKey, { vehicleId, month, km: 0, gallons: 0 });
+      if (!groups.has(groupKey)) groups.set(groupKey, { vehicleId, month, km: 0, gallons: 0, manualGallons: null, manualRecordId: '' });
       return groups.get(groupKey);
     };
     data.fuels.forEach(record => {
       const month = monthKey(record.date);
       const gallons = Number(record.gallons);
       if (!month || !Number.isFinite(gallons) || gallons <= 0) return;
-      getGroup(record.vehicleId, month).gallons += gallons;
+      const group = getGroup(record.vehicleId, month);
+      group.gallons += gallons;
+      if (record.provider === 'Excel proveedor') {
+        group.manualGallons = gallons;
+        group.manualRecordId = record.id;
+      }
     });
     data.trips.forEach(trip => {
       const month = monthKey(trip.departureDate);
@@ -1336,7 +1355,7 @@ function FuelKpi({ data }) {
           <td>{monthLabel(row.month)}</td>
           <td>{vehicleName(data, row.vehicleId)}</td>
           <td>{row.km > 0 ? row.km.toLocaleString('es-PE', {maximumFractionDigits: 1}) : '—'}</td>
-          <td>{row.gallons > 0 ? row.gallons.toLocaleString('es-PE', {maximumFractionDigits: 2}) : '—'}</td>
+          <td><KpiGallonsCell row={row} onSave={onSaveGallons}/></td>
           <td>{performance === null ? '—' : `${performance.toLocaleString('es-PE', {maximumFractionDigits: 1})} km/gal`}</td>
           <td><span className={`badge ${status === 'Dentro del parámetro' ? 'ok' : 'warn'}`}>{status}</span></td>
         </tr>;
@@ -1344,6 +1363,19 @@ function FuelKpi({ data }) {
     </Table> : <p className="empty-message">Aún no hay datos suficientes para calcular el KPI mensual.</p>}
     <p className="field-help" style={{marginTop: '12px'}}>Referencia inicial: 35 km/galón. El rendimiento mensual se calcula como kilómetros totales del mes ÷ galones totales del mes.</p>
   </section>;
+}
+
+function KpiGallonsCell({ row, onSave }) {
+  const [value, setValue] = useState(row.manualGallons ?? '');
+  const [saving, setSaving] = useState(false);
+  useEffect(() => setValue(row.manualGallons ?? ''), [row.manualGallons, row.month, row.vehicleId]);
+  const save = async () => {
+    const gallons = Number(value);
+    if (!(gallons > 0)) return alert('Escribe una cantidad de galones mayor que cero.');
+    setSaving(true);
+    try { await onSave?.(row, gallons); } finally { setSaving(false); }
+  };
+  return <div className="kpi-gallons-entry"><input aria-label={`Galones de ${monthLabel(row.month)}`} type="number" min="0.01" step="0.01" value={value} onChange={event => setValue(event.target.value)} placeholder={row.gallons > 0 ? row.gallons.toLocaleString('es-PE', {maximumFractionDigits: 2}) : 'Escribir'}/><button type="button" className="text-button" onClick={save} disabled={saving}>{saving ? 'Guardando…' : 'Guardar'}</button></div>;
 }
 
 function Fuel({data,drivers=[],profile,isAdmin=false,onEdit,onDelete}) {
