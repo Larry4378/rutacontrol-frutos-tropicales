@@ -111,7 +111,7 @@ test('el mapa único usa el punto vivo de la salida y el icono de la movilidad',
   assert.match(mainSource, /ResizeObserver/);
   assert.match(mainSource, /orientationchange/);
   assert.match(mainSource, /tiles\.on\('load', refreshMapSize\)/);
-  const dashboardSource = mainSource.slice(mainSource.indexOf('function Dashboard'), mainSource.indexOf('\n\n// El mapa superior'));
+    const dashboardSource = mainSource.slice(mainSource.indexOf('function Dashboard'), mainSource.indexOf('// El mapa superior'));
   assert.equal((dashboardSource.match(/<GpsLocationCard/g) || []).length, 1);
   assert.doesNotMatch(dashboardSource, /<RouteMap/);
 });
