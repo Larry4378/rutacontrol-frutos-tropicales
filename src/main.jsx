@@ -657,10 +657,21 @@ function App() {
         receipt_details: record.documentDetails || [],
       };
       const request = record._saved
-        ? supabase.from('fuel_records').update(payload).eq('id', recordId).select().single()
-        : supabase.from('fuel_records').insert(payload).select().single();
-      const { data: saved, error: saveError } = await request;
+        ? supabase.from('fuel_records').update(payload).eq('id', recordId).select()
+        : supabase.from('fuel_records').insert(payload).select();
+      let { data: savedRows, error: saveError } = await request;
+      let saved = Array.isArray(savedRows) ? savedRows[0] : savedRows;
+      // Los choferes pueden insertar sus registros manuales, pero la política
+      // de revisión puede impedir actualizar el registro anterior. En ese caso
+      // guardamos una nueva versión; el KPI toma solo la última versión.
+      if (!saved && record._saved && record.provider === 'Excel proveedor') {
+        const fallback = await supabase.from('fuel_records').insert({ ...payload, id: id() }).select();
+        savedRows = fallback.data;
+        saveError = fallback.error;
+        saved = Array.isArray(savedRows) ? savedRows[0] : savedRows;
+      }
       if (saveError) { alert(`No se pudo guardar el comprobante: ${saveError.message}`); return false; }
+      if (!saved) { alert('No se pudo encontrar el registro para actualizar.'); return false; }
       const savedRecord = {
         id: saved.id, vehicleId: saved.vehicle_id, createdBy: saved.created_by, provider: saved.provider,
         product: saved.fuel_product, gallons: saved.gallons, cost: saved.amount, km: saved.odometer_km,
@@ -1312,7 +1323,7 @@ function FuelKpi({ data, onSaveGallons }) {
     const groups = new Map();
     const getGroup = (vehicleId, month) => {
       const groupKey = `${vehicleId || 'sin-vehiculo'}|${month}`;
-      if (!groups.has(groupKey)) groups.set(groupKey, { vehicleId, month, km: 0, gallons: 0, manualGallons: null, manualRecordId: '' });
+      if (!groups.has(groupKey)) groups.set(groupKey, { vehicleId, month, km: 0, gallons: 0, manualGallons: null, manualRecordId: '', manualStamp: '' });
       return groups.get(groupKey);
     };
     data.fuels.forEach(record => {
@@ -1320,10 +1331,17 @@ function FuelKpi({ data, onSaveGallons }) {
       const gallons = Number(record.gallons);
       if (!month || !Number.isFinite(gallons) || gallons <= 0) return;
       const group = getGroup(record.vehicleId, month);
-      group.gallons += gallons;
       if (record.provider === 'Excel proveedor') {
-        group.manualGallons = gallons;
-        group.manualRecordId = record.id;
+        const stamp = `${record.date || ''}T${record.time || ''}`;
+        if (!group.manualStamp || stamp >= group.manualStamp) {
+          if (group.manualGallons !== null) group.gallons -= group.manualGallons;
+          group.gallons += gallons;
+          group.manualGallons = gallons;
+          group.manualRecordId = record.id;
+          group.manualStamp = stamp;
+        }
+      } else {
+        group.gallons += gallons;
       }
     });
     data.trips.forEach(trip => {

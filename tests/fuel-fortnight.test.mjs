@@ -32,5 +32,7 @@ test('el KPI permite escribir y guardar galones por mes', () => {
   assert.match(source, /reviewStatus: 'Datos detectados'/);
   assert.match(source, /_saved: Boolean\(manualRecord\)/);
   assert.match(source, /registered_at: record\.date \? `\$\{record\.date\}T12:00:00`/);
+  assert.match(source, /record\.provider === 'Excel proveedor'/);
+  assert.match(source, /manualStamp/);
   assert.match(source, /onSaveGallons=\{saveKpiGallons\}/);
 });
