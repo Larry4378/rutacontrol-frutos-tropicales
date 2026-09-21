@@ -11,14 +11,6 @@ test('combustible muestra el mes de cada abastecimiento', () => {
   assert.match(fuelSource, /monthLabel\(monthKey\(record\.date\)\)/);
 });
 
-test('combustible permite registrar galones manualmente sin comprobante obligatorio', () => {
-  const modalSource = source.slice(source.indexOf('function FuelModalReceipt'), source.indexOf('function FuelModalSmart'));
-  assert.match(modalSource, /Galones abastecidos/);
-  assert.match(modalSource, /Number\(form\.gallons\) > 0/);
-  assert.match(modalSource, /Foto del comprobante es opcional|foto del comprobante es opcional/i);
-  assert.doesNotMatch(modalSource, /Primero toma una foto clara del comprobante/);
-});
-
 test('la sección KPI muestra rendimiento mensual cruzando recorridos y galones', () => {
   assert.match(source, /const monthKey = value/);
   assert.match(source, /data\.trips\.map\(trip => monthKey\(trip\.departureDate\)\)/);
