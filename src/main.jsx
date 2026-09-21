@@ -1561,28 +1561,31 @@ function FuelModalReceipt({ record = {}, data, assignedVehicleId = '', isAdmin =
   };
   const submit = async event => {
     event.preventDefault();
-    if (!receiptFile && !form.receiptPath) return alert('Primero toma una foto clara del comprobante.');
     if (!form.vehicleId) return alert('Selecciona el vehículo antes de enviar el comprobante.');
+    if (!(Number(form.gallons) > 0)) return alert('Escribe una cantidad de galones mayor que cero.');
     setSaving(true);
-    const saved = await onSave({ ...form, id: form.id || id(), receiptFile, reviewStatus: form.reviewStatus || 'Pendiente de revisión' });
+    const saved = await onSave({ ...form, id: form.id || id(), receiptFile, reviewStatus: form.reviewStatus || 'Registrado manualmente' });
     if (!saved) setSaving(false);
   };
   return <dialog open className="quick-departure-modal fuel-modal">
     <form onSubmit={submit}>
-      <div className="modal-head"><div><p className="eyebrow">COMBUSTIBLE</p><h2>Enviar comprobante</h2></div><button type="button" className="close" onClick={onClose}>×</button></div>
+      <div className="modal-head"><div><p className="eyebrow">COMBUSTIBLE</p><h2>Registrar galones</h2></div><button type="button" className="close" onClick={onClose}>×</button></div>
       <section className="fuel-capture-start">
-        <p className="eyebrow">COMPROBANTE</p><h3>Toma una foto clara</h3>
-        <p>Solo envía la imagen. La oficina revisará la información del comprobante.</p>
-        <label className="evidence-camera">◉ Tomar foto<input required={!form.receiptPath} type="file" accept="image/*" capture="environment" onChange={event => scanReceipt(event.target.files?.[0])}/></label>
-        {receiptFile && <small className="photo-loaded">✓ Foto lista: {receiptFile.name}</small>}
+        <p className="eyebrow">DATOS DEL REPORTE DEL PROVEEDOR</p><h3>Ingresa los galones manualmente</h3>
+        <p>Escribe la cantidad que aparece en el Excel del grifo. La foto del comprobante es opcional.</p>
       </section>
       <div className="form-grid fuel-basics">
         <div className="field"><label>{assignedVehicleId ? 'Vehículo asignado' : 'Vehículo'}</label><select required value={form.vehicleId || ''} onChange={event => change('vehicleId', event.target.value)}><option value="">Seleccionar vehículo</option>{data.vehicles.map(vehicle => <option key={vehicle.id} value={vehicle.id}>{vehicle.plate} · {vehicle.brand}</option>)}</select>{assignedVehicleId && <small className="field-help">Se completa con tu vehículo asignado.</small>}</div>
-        <div className="field"><label>Fecha de envío</label><input type="date" value={form.date || today()} readOnly/></div>
+        <div className="field"><label>Fecha</label><input type="date" value={form.date || today()} onChange={event => change('date', event.target.value)}/></div>
+        <div className="field"><label>Galones abastecidos</label><input required type="number" min="0.01" step="0.01" value={form.gallons || ''} onChange={event => change('gallons', event.target.value)} placeholder="Ejemplo: 8"/></div>
+        <div className="field"><label>Grifo / proveedor (opcional)</label><input value={form.provider || ''} onChange={event => change('provider', event.target.value)} placeholder="Nombre del grifo"/></div>
+        <div className="field"><label>Producto (opcional)</label><input value={form.product || ''} onChange={event => change('product', event.target.value)} placeholder="Gasohol, diésel, etc."/></div>
       </div>
+      <label className="evidence-camera">◉ Adjuntar comprobante (opcional)<input type="file" accept="image/*" onChange={event => scanReceipt(event.target.files?.[0])}/></label>
+      {receiptFile && <small className="photo-loaded">✓ Foto lista: {receiptFile.name}</small>}
       {status && <p className="ocr-status">{status}</p>}
       {isAdmin && form._saved && <p className="field-help">Como administrador puedes revisar la foto en la lista de comprobantes.</p>}
-      <div className="form-actions"><button type="button" className="secondary" onClick={onClose} disabled={saving}>Cancelar</button><button className="primary" disabled={saving}>{saving ? 'Enviando comprobante…' : 'Enviar comprobante'}</button></div>
+      <div className="form-actions"><button type="button" className="secondary" onClick={onClose} disabled={saving}>Cancelar</button><button className="primary" disabled={saving}>{saving ? 'Guardando registro…' : 'Guardar registro'}</button></div>
     </form>
   </dialog>;
 }
