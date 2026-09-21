@@ -713,6 +713,7 @@ function App() {
     const saved = await update('fuels', {
       ...(manualRecord || {}),
       id: manualRecord?.id || id(),
+      _saved: Boolean(manualRecord),
       vehicleId: row.vehicleId,
       date: manualRecord?.date || `${row.month}-01`,
       provider: 'Excel proveedor',
