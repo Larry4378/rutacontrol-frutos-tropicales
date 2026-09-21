@@ -650,6 +650,7 @@ function App() {
       const toNumberOrNull = value => value === '' || value === null || value === undefined || !Number.isFinite(Number(value)) ? null : Number(value);
       const payload = {
         id: recordId, vehicle_id: record.vehicleId, created_by: record.createdBy || user.id,
+        registered_at: record.date ? `${record.date}T12:00:00` : undefined,
         provider: record.provider || null, amount: toNumberOrNull(record.cost), odometer_km: toNumberOrNull(record.km),
         fuel_product: record.product || null, gallons: toNumberOrNull(record.gallons ?? record.liters),
         review_status: record.reviewStatus || 'Pendiente de revisión', receipt_path: receiptPath,
