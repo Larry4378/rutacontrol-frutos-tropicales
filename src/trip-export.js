@@ -115,3 +115,32 @@ export const buildTripExportXlsx = rows => {
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Recorridos');
   return XLSX.write(workbook, { bookType: 'xlsx', type: 'array', compression: true });
 };
+
+export const KPI_EXPORT_HEADERS = ['Mes', 'Vehículo', 'Kilómetros', 'Galones', 'Rendimiento km/gal', 'Estado'];
+
+export const buildKpiExportXlsx = rows => {
+  const worksheet = XLSX.utils.aoa_to_sheet([KPI_EXPORT_HEADERS, ...rows]);
+  const lastRow = rows.length + 1;
+  worksheet['!autofilter'] = { ref: `A1:F${lastRow}` };
+  worksheet['!freeze'] = { ySplit: 1, topLeftCell: 'A2', activePane: 'bottomLeft', state: 'frozen' };
+  worksheet['!cols'] = KPI_EXPORT_HEADERS.map(header => ({ wch: Math.min(28, Math.max(16, header.length + 2)) }));
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Rendimiento KPI');
+  return XLSX.write(workbook, { bookType: 'xlsx', type: 'array', compression: true });
+};
+
+export const buildKpiWeeklyExportXlsx = ({ months, rows }) => {
+  const monthColumns = months.flatMap(month => Array.from({ length: 5 }, (_, index) => `${month} · Sem ${index + 1}`));
+  const headers = ['USUARIO', 'TIPO VEHÍCULO', 'PLACA', ...monthColumns, 'Total general'];
+  const matrix = [headers, ...rows.map(row => [row.user, row.vehicleType, row.plate, ...row.values, row.total])];
+  const worksheet = XLSX.utils.aoa_to_sheet(matrix);
+  const lastRow = matrix.length;
+  let lastColumn = '';
+  for (let number = headers.length; number > 0; number = Math.floor((number - 1) / 26)) lastColumn = String.fromCharCode(65 + ((number - 1) % 26)) + lastColumn;
+  worksheet['!autofilter'] = { ref: `A1:${lastColumn}${lastRow}` };
+  worksheet['!freeze'] = { ySplit: 1, topLeftCell: 'A2', activePane: 'bottomLeft', state: 'frozen' };
+  worksheet['!cols'] = headers.map((header, index) => ({ wch: index < 3 ? (index === 0 ? 30 : 17) : Math.min(18, Math.max(12, header.length + 2)) }));
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Galones por semana');
+  return XLSX.write(workbook, { bookType: 'xlsx', type: 'array', compression: true });
+};

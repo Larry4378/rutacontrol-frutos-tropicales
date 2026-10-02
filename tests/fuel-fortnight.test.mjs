@@ -14,7 +14,7 @@ test('combustible muestra el mes de cada abastecimiento', () => {
 test('la sección KPI muestra rendimiento mensual cruzando recorridos y galones', () => {
   assert.match(source, /const monthKey = value/);
   assert.match(source, /data\.trips\.map\(trip => monthKey\(trip\.departureDate\)\)/);
-  assert.match(source, /function FuelKpi\(\{ data(?:, onSaveGallons)? \}\)/);
+    assert.match(source, /function FuelKpi\(\{ data, drivers = \[\], onSaveGallons \}\)/);
   assert.match(source, /Rendimiento Km\/Gl · KPI/);
   assert.match(source, /row\.km \/ row\.gallons/);
   assert.match(source, /Filtrar KPI por mes/);
@@ -35,4 +35,10 @@ test('el KPI permite escribir y guardar galones por mes', () => {
   assert.match(source, /record\.provider === 'Excel proveedor'/);
   assert.match(source, /manualStamp/);
   assert.match(source, /onSaveGallons=\{saveKpiGallons\}/);
+});
+
+test('el KPI permite descargar un Excel con sus seis columnas', () => {
+  assert.match(source, /buildKpiWeeklyExportXlsx/);
+  assert.match(source, /Descargar Excel KPI/);
+  assert.match(source, /Galones_KPI_por_usuario_semana\.xlsx/);
 });

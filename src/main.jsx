@@ -6,7 +6,7 @@ import { supabase, SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from './supabase';
 import { GPS_TRACKING_MAX_ACCURACY_METERS, formatGpsCoordinates, getPreciseGpsPosition, googleMapsLocationUrl, gpsDistanceMeters, isGpsPointFresh, reverseGeocodeGpsAddress, shouldKeepGpsPoint, stabilizeGpsPoint, stabilizeLiveGpsRow } from './gps.js';
 import { addNativeLocationListener, getNativeLocationStatus, isNativeAndroidLocation, startNativeLocationTracking, stopNativeLocationTracking } from './native-location.js';
 import { arrivalSubmissionError, isPositiveKilometer, normalizeKilometerInput } from './odometer-form.js';
-import { buildTripExportRows, buildTripExportXlsx } from './trip-export.js';
+import { buildKpiWeeklyExportXlsx, buildTripExportRows, buildTripExportXlsx } from './trip-export.js';
 import 'leaflet/dist/leaflet.css';
 import '../styles.css';
 import '../mango.css';
@@ -746,7 +746,7 @@ function App() {
       {view === 'dashboard' && <Dashboard data={data} profile={profile} driverPreview={driverPreview} km={tripsKm} permissions={profile?.role === 'driver' && !driverPreview ? driverPermissions : {departure:true,arrival:true}} assignmentReady={profileReady && vehiclesReady} driverName={profile?.role === 'driver' ? profile.full_name : ''} onGo={setView} onDeparture={() => setModal({type:'quickDeparture'})} onReturn={() => setModal({type:'quickReturn'})} onTripUpdate={record => update('trips',record)} tripForm={modal?.type === 'quickDeparture' ? <DepartureGpsRequired data={data} drivers={tripDrivers} driverName={profile?.role === 'driver' ? profile.full_name : ''} driverId={profile?.role === 'driver' && !driverPreview ? profile.id : ''} assignedVehicleId={profile?.role === 'driver' && !driverPreview ? profile.permissions?.assignedVehicleId : ''} assignedVehicleLabel={profile?.role === 'driver' && !driverPreview ? profile.permissions?.assignedVehicleLabel : ''} onClose={() => setModal(null)} onSave={async record => { const saved={...record,...(window.departureEvidence||{}),departureTime:now()}; const registered=await update('trips',saved); if(registered){setModal(null);setSuccessMessage('Salida registrada correctamente.');} return registered; }} /> : modal?.type === 'quickReturn' ? <ArrivalSimple data={data} driverName={profile?.role === 'driver' && !driverPreview ? profile.full_name : ''} driverId={profile?.role === 'driver' && !driverPreview ? profile.id : ''} onClose={() => setModal(null)} onSave={async record => { const registered=await update('trips',{...record,returnTime:now()}); if(registered){setModal(null);setSuccessMessage('Llegada registrada correctamente.');} return registered; }} /> : null} />}
       {view === 'trips' && <List title="Historial de recorridos" text="Consulta, filtra y edita las salidas y llegadas registradas." hideAdd><Trips data={data} drivers={tripHistoryDrivers} profile={profile} onEdit={record => setModal({type:'trip',record})} onDelete={record => remove('trips',record.id)} /></List>}
       {view === 'fuel' && <List title="Control de combustible" text={profile?.role === 'admin' && !driverPreview ? 'Revisa los comprobantes enviados por toda la flota.' : 'Envía tu comprobante y consulta los que ya registraste.'} onAdd={() => setModal({type:'fuel'})}><Fuel data={data} drivers={drivers} profile={profile} isAdmin={profile?.role === 'admin' && !driverPreview} onEdit={record => setModal({type:'fuel',record})} onDelete={record => remove('fuels',record.id)} /></List>}
-      {view === 'kpi' && ((profile?.role === 'admin' && !driverPreview) || (profile?.role === 'driver' && driverPermissions.kpi)) && <FuelKpi data={data} onSaveGallons={saveKpiGallons} />}
+      {view === 'kpi' && ((profile?.role === 'admin' && !driverPreview) || (profile?.role === 'driver' && driverPermissions.kpi)) && <FuelKpi data={data} drivers={drivers} onSaveGallons={saveKpiGallons} />}
       {view === 'vehicles' && <List title="Vehículos" text="Administra placa, odómetro y estado." onAdd={() => setModal({type:'vehicle'})}><Vehicles data={data} onEdit={record => setModal({type:'vehicle',record})} onDelete={record => remove('vehicles',record)} /></List>}
       {view === 'reports' && <Reports data={data} />}
       {view === 'users' && <UsersPage drivers={drivers} vehicles={data.vehicles} onChanged={loadUsers}/>}
@@ -1311,7 +1311,7 @@ function Trips({data,drivers=[],profile,onEdit,onDelete}) {
   </>;
 }
 function Maintenance({data,onEdit,onDelete}) { return <Table heads={['Fecha','Vehículo','Servicio','Próxima fecha / km','']} >{data.maintenance.slice().reverse().map(x=><tr key={x.id}><td>{date(x.date)}</td><td>{vehicleName(data,x.vehicleId)}</td><td>{x.type}</td><td>{x.nextDate || '—'} {x.nextKm ? ` / ${x.nextKm} km` : ''}</td><td><Actions onEdit={()=>onEdit(x)} onDelete={()=>onDelete(x)}/></td></tr>)}</Table>; }
-function FuelKpi({ data, onSaveGallons }) {
+function FuelKpi({ data, drivers = [], onSaveGallons }) {
   const [monthFilter, setMonthFilter] = useState('');
   const [vehicleFilter, setVehicleFilter] = useState('');
   const rows = data.fuels.slice().sort((a,b) => `${b.date||''}${b.time||''}`.localeCompare(`${a.date||''}${a.time||''}`));
@@ -1355,6 +1355,32 @@ function FuelKpi({ data, onSaveGallons }) {
       .filter(row => (!monthFilter || row.month === monthFilter) && (!vehicleFilter || String(row.vehicleId) === String(vehicleFilter)))
       .sort((a, b) => `${b.month}|${a.vehicleId || ''}`.localeCompare(`${a.month}|${b.vehicleId || ''}`));
   }, [data.fuels, data.trips, monthFilter, vehicleFilter]);
+  const downloadKpi = () => {
+    const monthsForExport = [...new Set(data.fuels.map(record => monthKey(record.date)).filter(Boolean))].sort();
+    const groups = new Map();
+    data.fuels.forEach(record => {
+      const gallons = Number(record.gallons);
+      const month = monthKey(record.date);
+      if (!month || !Number.isFinite(gallons) || gallons <= 0 || !record.vehicleId) return;
+      const vehicle = data.vehicles.find(item => String(item.id) === String(record.vehicleId));
+      const assignedDriver = drivers.find(item => String(item.permissions?.assignedVehicleId || '') === String(record.vehicleId));
+      const key = `${record.createdBy || 'sin-usuario'}|${record.vehicleId}`;
+      if (!groups.has(key)) groups.set(key, { user: assignedDriver?.full_name || drivers.find(item => String(item.id) === String(record.createdBy))?.full_name || 'Usuario sin nombre', vehicleType: vehicle?.vehicle_type === 'Camioneta' ? 'CARRO' : String(vehicle?.vehicle_type || 'CARRO').toUpperCase(), plate: vehicle?.plate || '—', values: Array(monthsForExport.length * 5).fill(0), total: 0 });
+      const group = groups.get(key);
+      const monthIndex = monthsForExport.indexOf(month);
+      const day = Number(String(record.date).slice(8, 10)) || 1;
+      const week = Math.min(5, Math.floor((day - 1) / 7));
+      group.values[monthIndex * 5 + week] += gallons;
+      group.total += gallons;
+    });
+    const rows = [...groups.values()].map(row => ({ ...row, values: row.values.map(value => value || '') }));
+    const blob = new Blob([buildKpiWeeklyExportXlsx({ months: monthsForExport.map(monthLabel), rows })], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'Galones_KPI_por_usuario_semana.xlsx';
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
   return <section className="panel kpi-panel">
     <div className="panel-title"><div><p className="eyebrow">CONTROL DE RENDIMIENTO MENSUAL</p><h2>Rendimiento Km/Gl · KPI</h2><p>Cruza los kilómetros de Recorridos con los galones registrados en Combustible por mes.</p></div></div>
     <div className="maintenance-filters kpi-filters">
@@ -1366,6 +1392,7 @@ function FuelKpi({ data, onSaveGallons }) {
         <option value="">Todos los vehículos</option>
         {data.vehicles.map(vehicle => <option key={vehicle.id} value={vehicle.id}>{vehicle.plate} · {vehicle.brand}</option>)}
       </select>
+      <button type="button" className="primary" onClick={downloadKpi} disabled={!data.fuels.length}>⇩ Descargar Excel KPI</button>
     </div>
     {monthlyRows.length > 0 ? <Table heads={['Mes','Vehículo','Kilómetros','Galones','Rendimiento','Estado']}>
       {monthlyRows.map(row => {
