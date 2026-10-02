@@ -41,4 +41,6 @@ test('el KPI permite descargar un Excel con sus seis columnas', () => {
   assert.match(source, /buildKpiWeeklyExportXlsx/);
   assert.match(source, /Descargar Excel KPI/);
   assert.match(source, /Galones_KPI_por_usuario_semana\.xlsx/);
+  assert.match(source, /Detalle de galones por usuario y semana/);
+  assert.match(source, /Esta tabla muestra la misma información que se descarga en el Excel/);
 });

@@ -1355,32 +1355,49 @@ function FuelKpi({ data, drivers = [], onSaveGallons }) {
       .filter(row => (!monthFilter || row.month === monthFilter) && (!vehicleFilter || String(row.vehicleId) === String(vehicleFilter)))
       .sort((a, b) => `${b.month}|${a.vehicleId || ''}`.localeCompare(`${a.month}|${b.vehicleId || ''}`));
   }, [data.fuels, data.trips, monthFilter, vehicleFilter]);
-  const downloadKpi = () => {
-    const monthsForExport = [...new Set(data.fuels.map(record => monthKey(record.date)).filter(Boolean))].sort();
-    const groups = new Map();
+  const effectiveFuelRecords = useMemo(() => {
+    const latestManual = new Map();
     data.fuels.forEach(record => {
+      if (record.provider !== 'Excel proveedor' || !record.vehicleId) return;
+      const key = `${record.vehicleId}|${monthKey(record.date)}`;
+      const stamp = `${record.date || ''}T${record.time || ''}`;
+      if (!latestManual.has(key) || stamp >= latestManual.get(key).stamp) latestManual.set(key, { id: record.id, stamp });
+    });
+    return data.fuels.filter(record => {
+      if (record.provider !== 'Excel proveedor') return true;
+      const latest = latestManual.get(`${record.vehicleId}|${monthKey(record.date)}`);
+      return latest?.id === record.id;
+    });
+  }, [data.fuels]);
+  const weeklyMonths = useMemo(() => [...new Set(effectiveFuelRecords.map(record => monthKey(record.date)).filter(Boolean))].sort(), [effectiveFuelRecords]);
+  const weeklyRows = useMemo(() => {
+    const groups = new Map();
+    effectiveFuelRecords.forEach(record => {
       const gallons = Number(record.gallons);
       const month = monthKey(record.date);
       if (!month || !Number.isFinite(gallons) || gallons <= 0 || !record.vehicleId) return;
       const vehicle = data.vehicles.find(item => String(item.id) === String(record.vehicleId));
       const assignedDriver = drivers.find(item => String(item.permissions?.assignedVehicleId || '') === String(record.vehicleId));
-      const key = `${record.createdBy || 'sin-usuario'}|${record.vehicleId}`;
-      if (!groups.has(key)) groups.set(key, { user: assignedDriver?.full_name || drivers.find(item => String(item.id) === String(record.createdBy))?.full_name || 'Usuario sin nombre', vehicleType: vehicle?.vehicle_type === 'Camioneta' ? 'CARRO' : String(vehicle?.vehicle_type || 'CARRO').toUpperCase(), plate: vehicle?.plate || '—', values: Array(monthsForExport.length * 5).fill(0), total: 0 });
+      const key = String(record.vehicleId);
+      if (!groups.has(key)) groups.set(key, { user: assignedDriver?.full_name || drivers.find(item => String(item.id) === String(record.createdBy))?.full_name || 'Usuario sin nombre', vehicleType: vehicle?.vehicle_type === 'Camioneta' ? 'CARRO' : String(vehicle?.vehicle_type || 'CARRO').toUpperCase(), plate: vehicle?.plate || '—', values: Array(weeklyMonths.length * 5).fill(0), total: 0 });
       const group = groups.get(key);
-      const monthIndex = monthsForExport.indexOf(month);
+      const monthIndex = weeklyMonths.indexOf(month);
       const day = Number(String(record.date).slice(8, 10)) || 1;
       const week = Math.min(5, Math.floor((day - 1) / 7));
       group.values[monthIndex * 5 + week] += gallons;
       group.total += gallons;
     });
-    const rows = [...groups.values()].map(row => ({ ...row, values: row.values.map(value => value || '') }));
-    const blob = new Blob([buildKpiWeeklyExportXlsx({ months: monthsForExport.map(monthLabel), rows })], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    return [...groups.values()].map(row => ({ ...row, values: row.values.map(value => value || '') }));
+  }, [data.vehicles, drivers, effectiveFuelRecords, weeklyMonths]);
+  const downloadKpi = () => {
+    const blob = new Blob([buildKpiWeeklyExportXlsx({ months: weeklyMonths.map(monthLabel), rows: weeklyRows })], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
     link.download = 'Galones_KPI_por_usuario_semana.xlsx';
     link.click();
     URL.revokeObjectURL(link.href);
   };
+  const weeklyHeads = ['Usuario', 'Tipo vehículo', 'Placa', ...weeklyMonths.flatMap(month => Array.from({ length: 5 }, (_, index) => `${monthLabel(month)} · Sem ${index + 1}`)), 'Total general'];
   return <section className="panel kpi-panel">
     <div className="panel-title"><div><p className="eyebrow">CONTROL DE RENDIMIENTO MENSUAL</p><h2>Rendimiento Km/Gl · KPI</h2><p>Cruza los kilómetros de Recorridos con los galones registrados en Combustible por mes.</p></div></div>
     <div className="maintenance-filters kpi-filters">
@@ -1408,6 +1425,10 @@ function FuelKpi({ data, drivers = [], onSaveGallons }) {
         </tr>;
       })}
     </Table> : <p className="empty-message">Aún no hay datos suficientes para calcular el KPI mensual.</p>}
+    {weeklyRows.length > 0 && <>
+      <div className="section-head kpi-detail-heading"><div><h3>Detalle de galones por usuario y semana</h3><p>Esta tabla muestra la misma información que se descarga en el Excel.</p></div></div>
+      <Table heads={weeklyHeads}>{weeklyRows.map(row => <tr key={row.plate}><td>{row.user}</td><td>{row.vehicleType}</td><td>{row.plate}</td>{row.values.map((value, index) => <td key={`${row.plate}-${index}`}>{value === '' ? '—' : Number(value).toLocaleString('es-PE', { maximumFractionDigits: 2 })}</td>)}<td>{Number(row.total).toLocaleString('es-PE', { maximumFractionDigits: 2 })}</td></tr>)}</Table>
+    </>}
     <p className="field-help" style={{marginTop: '12px'}}>Referencia inicial: 35 km/galón. El rendimiento mensual se calcula como kilómetros totales del mes ÷ galones totales del mes.</p>
   </section>;
 }
