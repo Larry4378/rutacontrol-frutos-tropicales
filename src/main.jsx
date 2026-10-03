@@ -1323,7 +1323,8 @@ function FuelKpi({ data, drivers = [], onSaveGallons }) {
     const groups = new Map();
     const getGroup = (vehicleId, month) => {
       const groupKey = `${vehicleId || 'sin-vehiculo'}|${month}`;
-      if (!groups.has(groupKey)) groups.set(groupKey, { vehicleId, month, km: 0, gallons: 0, manualGallons: null, manualRecordId: '', manualStamp: '' });
+      const assignedDriver = drivers.find(item => String(item.permissions?.assignedVehicleId || '') === String(vehicleId));
+      if (!groups.has(groupKey)) groups.set(groupKey, { vehicleId, month, user: assignedDriver?.full_name || 'Usuario sin nombre', km: 0, gallons: 0, manualGallons: null, manualRecordId: '', manualStamp: '' });
       return groups.get(groupKey);
     };
     data.fuels.forEach(record => {
@@ -1354,7 +1355,7 @@ function FuelKpi({ data, drivers = [], onSaveGallons }) {
     return [...groups.values()]
       .filter(row => (!monthFilter || row.month === monthFilter) && (!vehicleFilter || String(row.vehicleId) === String(vehicleFilter)))
       .sort((a, b) => `${b.month}|${a.vehicleId || ''}`.localeCompare(`${a.month}|${b.vehicleId || ''}`));
-  }, [data.fuels, data.trips, monthFilter, vehicleFilter]);
+  }, [data.fuels, data.trips, drivers, monthFilter, vehicleFilter]);
   const effectiveFuelRecords = useMemo(() => {
     const latestManual = new Map();
     data.fuels.forEach(record => {
@@ -1400,6 +1401,11 @@ function FuelKpi({ data, drivers = [], onSaveGallons }) {
   const weeklyHeads = ['Usuario', 'Tipo vehículo', 'Placa', ...weeklyMonths.flatMap(month => Array.from({ length: 5 }, (_, index) => `${monthLabel(month)} · Sem ${index + 1}`)), 'Total general'];
   return <section className="panel kpi-panel">
     <div className="panel-title"><div><p className="eyebrow">CONTROL DE RENDIMIENTO MENSUAL</p><h2>Rendimiento Km/Gl · KPI</h2><p>Cruza los kilómetros de Recorridos con los galones registrados en Combustible por mes.</p></div></div>
+    <div className="kpi-flow" aria-label="Pasos del cálculo KPI">
+      <div className="kpi-flow-step"><b>1. Recorridos</b><span>kilómetros del mes</span></div>
+      <div className="kpi-flow-step"><b>2. Galones del grifo</b><span>carga mensual manual</span></div>
+      <div className="kpi-flow-step"><b>3. Resultado KPI</b><span>rendimiento y estado</span></div>
+    </div>
     <div className="maintenance-filters kpi-filters">
       <select className="filter" aria-label="Filtrar KPI por mes" value={monthFilter} onChange={event => setMonthFilter(event.target.value)}>
         <option value="">Todos los meses</option>
@@ -1411,12 +1417,15 @@ function FuelKpi({ data, drivers = [], onSaveGallons }) {
       </select>
       <button type="button" className="primary" onClick={downloadKpi} disabled={!data.fuels.length}>⇩ Descargar Excel KPI</button>
     </div>
-    {monthlyRows.length > 0 ? <Table heads={['Mes','Vehículo','Kilómetros','Galones','Rendimiento','Estado']}>
+    {monthlyRows.length > 0 ? <>
+      <div className="kpi-section-title"><h3>Resumen mensual</h3><p>Los kilómetros salen de los recorridos completados. Escribe aquí los galones del reporte del grifo.</p></div>
+      <Table heads={['Mes','Usuario','Vehículo','Km recorridos','Galones del grifo','Rendimiento','Estado']}>
       {monthlyRows.map(row => {
         const performance = row.gallons > 0 && row.km > 0 ? row.km / row.gallons : null;
         const status = performance === null ? 'Pendiente de datos' : performance < 35 ? 'Revisar' : 'Dentro del parámetro';
         return <tr key={`${row.vehicleId || 'sin-vehiculo'}-${row.month}`}>
           <td>{monthLabel(row.month)}</td>
+          <td>{row.user}</td>
           <td>{vehicleName(data, row.vehicleId)}</td>
           <td>{row.km > 0 ? row.km.toLocaleString('es-PE', {maximumFractionDigits: 1}) : '—'}</td>
           <td><KpiGallonsCell row={row} onSave={onSaveGallons}/></td>
@@ -1424,7 +1433,8 @@ function FuelKpi({ data, drivers = [], onSaveGallons }) {
           <td><span className={`badge ${status === 'Dentro del parámetro' ? 'ok' : 'warn'}`}>{status}</span></td>
         </tr>;
       })}
-    </Table> : <p className="empty-message">Aún no hay datos suficientes para calcular el KPI mensual.</p>}
+      </Table>
+    </> : <p className="empty-message">Aún no hay datos suficientes para calcular el KPI mensual.</p>}
     {weeklyRows.length > 0 && <>
       <div className="section-head kpi-detail-heading"><div><h3>Detalle de galones por usuario y semana</h3><p>Esta tabla muestra la misma información que se descarga en el Excel.</p></div></div>
       <Table heads={weeklyHeads}>{weeklyRows.map(row => <tr key={row.plate}><td>{row.user}</td><td>{row.vehicleType}</td><td>{row.plate}</td>{row.values.map((value, index) => <td key={`${row.plate}-${index}`}>{value === '' ? '—' : Number(value).toLocaleString('es-PE', { maximumFractionDigits: 2 })}</td>)}<td>{Number(row.total).toLocaleString('es-PE', { maximumFractionDigits: 2 })}</td></tr>)}</Table>
