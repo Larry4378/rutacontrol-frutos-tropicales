@@ -1390,12 +1390,16 @@ function FuelKpi({ data, drivers = [], onSaveGallons }) {
   ].filter(Boolean))].sort().reverse();
   const monthlyRows = useMemo(() => {
     const groups = new Map();
+    const weekOfMonth = value => {
+      const day = Number(String(value || '').slice(8, 10));
+      return day ? Math.min(5, Math.floor((day - 1) / 7) + 1) : null;
+    };
     const getGroup = (vehicleId, month) => {
       const groupKey = `${vehicleId || 'sin-vehiculo'}|${month}`;
       const tripDriverId = data.trips.find(trip => String(trip.vehicleId) === String(vehicleId) && monthKey(trip.departureDate) === month)?.driverProfileId;
       const tripDriver = drivers.find(item => String(item.id) === String(tripDriverId));
       const assignedDriver = drivers.find(item => String(item.permissions?.assignedVehicleId || '') === String(vehicleId));
-      if (!groups.has(groupKey)) groups.set(groupKey, { vehicleId, month, user: tripDriver?.full_name || assignedDriver?.full_name || 'Usuario sin nombre', km: 0, gallons: 0, manualGallons: null, manualRecordId: '', manualStamp: '' });
+      if (!groups.has(groupKey)) groups.set(groupKey, { vehicleId, month, user: tripDriver?.full_name || assignedDriver?.full_name || 'Usuario sin nombre', km: 0, gallons: 0, weeks: new Set(), manualGallons: null, manualRecordId: '', manualStamp: '' });
       return groups.get(groupKey);
     };
     data.fuels.forEach(record => {
@@ -1403,6 +1407,8 @@ function FuelKpi({ data, drivers = [], onSaveGallons }) {
       const gallons = Number(record.gallons);
       if (!month || !Number.isFinite(gallons) || gallons <= 0) return;
       const group = getGroup(record.vehicleId, month);
+      const week = weekOfMonth(record.date);
+      if (week) group.weeks.add(week);
       const importedFromExcel = record.provider === 'Excel proveedor' && record.documentDetails?.some(item => item.key === 'importSource');
       if (record.provider === 'Excel proveedor' && !importedFromExcel) {
         const stamp = `${record.date || ''}T${record.time || ''}`;
@@ -1422,10 +1428,14 @@ function FuelKpi({ data, drivers = [], onSaveGallons }) {
       const startKm = Number(trip.startKm);
       const endKm = Number(trip.endKm);
       if (!month || !Number.isFinite(startKm) || !Number.isFinite(endKm) || endKm <= startKm) return;
-      getGroup(trip.vehicleId, month).km += endKm - startKm;
+      const group = getGroup(trip.vehicleId, month);
+      const week = weekOfMonth(trip.departureDate);
+      if (week) group.weeks.add(week);
+      group.km += endKm - startKm;
     });
     return [...groups.values()]
       .filter(row => (!monthFilter || row.month === monthFilter) && (!vehicleFilter || String(row.vehicleId) === String(vehicleFilter)))
+      .map(row => ({ ...row, weeks: [...row.weeks].sort((a, b) => a - b) }))
       .sort((a, b) => `${b.month}|${a.vehicleId || ''}`.localeCompare(`${a.month}|${b.vehicleId || ''}`));
   }, [data.fuels, data.trips, drivers, monthFilter, vehicleFilter]);
   const effectiveFuelRecords = useMemo(() => {
@@ -1497,12 +1507,13 @@ function FuelKpi({ data, drivers = [], onSaveGallons }) {
     </div>
     {monthlyRows.length > 0 ? <>
       <div className="kpi-section-title"><h3>Resumen mensual</h3><p>Los kilómetros salen de los recorridos completados. Escribe aquí los galones del reporte del grifo.</p></div>
-      <Table heads={['Mes','Usuario','Vehículo','Km recorridos','Galones del grifo','Rendimiento','Estado']}>
+      <Table heads={['Mes','Semanas','Usuario','Vehículo','Km recorridos','Galones del grifo','Rendimiento','Estado']}>
       {monthlyRows.map(row => {
         const performance = row.gallons > 0 && row.km > 0 ? row.km / row.gallons : null;
         const status = performance === null ? 'Pendiente de datos' : performance < 35 ? 'Revisar' : 'Dentro del parámetro';
         return <tr key={`${row.vehicleId || 'sin-vehiculo'}-${row.month}`}>
           <td>{monthLabel(row.month)}</td>
+          <td>{row.weeks.length ? row.weeks.map(week => `Sem. ${week}`).join(', ') : '—'}</td>
           <td>{row.user}</td>
           <td>{vehicleName(data, row.vehicleId)}</td>
           <td>{row.km > 0 ? row.km.toLocaleString('es-PE', {maximumFractionDigits: 1}) : '—'}</td>
