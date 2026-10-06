@@ -710,11 +710,11 @@ function App() {
     setData(previous => ({ ...previous, [collection]: previous[collection].filter(x => x.id !== recordId) }));
   };
   const tripsKm = data.trips.reduce((total, trip) => total + (trip.endKm ? Math.max(0, Number(trip.endKm) - Number(trip.startKm)) : 0), 0);
-  const adminNav=[['dashboard','▦','Inicio'],['trips','↗','Recorridos'],['fuel','◉','Combustible'],['kpi','◉','Rendimiento Km/Gl · KPI'],['vehicles','▣','Vehículos'],['users','◉','Usuarios'],['reports','⇩','Reportes']];
+  const adminNav=[['dashboard','▦','Inicio'],['trips','↗','Recorridos'],['fuel','◉','Combustible'],['kpi','◉','Rendimiento Km/Gl · KPI'],['vehicles','▣','Vehículos'],['users','◉','Usuarios']];
   const driverPermissions={departure:false,arrival:false,trips:false,fuel:false,kpi:false,...(profile?.permissions||{})};
   const driverNav=[['dashboard','▦','Inicio'],...(driverPermissions.trips?[['trips','↗','Mis recorridos']]:[]),...(driverPermissions.fuel?[['fuel','◉','Combustible']]:[]),...(driverPermissions.kpi?[['kpi','◉','Rendimiento Km/Gl · KPI']]:[])];
   const nav = profile?.role === 'admin' && !driverPreview ? adminNav : driverNav;
-  const title = { dashboard:'Inicio',trips:'Historial de recorridos',fuel:'Control de combustible',kpi:'Rendimiento Km/Gl · KPI',expenses:'Gastos y reparaciones',vehicles:'Vehículos',users:'Usuarios y accesos',reports:'Reportes' }[view];
+  const title = { dashboard:'Inicio',trips:'Historial de recorridos',fuel:'Control de combustible',kpi:'Rendimiento Km/Gl · KPI',expenses:'Gastos y reparaciones',vehicles:'Vehículos',users:'Usuarios y accesos' }[view];
   const logout = async () => {
     if (isNativeAndroidLocation()) await stopNativeLocationTracking().catch(() => {});
     await supabase.auth.signOut();
@@ -748,7 +748,6 @@ function App() {
       {view === 'fuel' && <List title="Control de combustible" text={profile?.role === 'admin' && !driverPreview ? 'Revisa los comprobantes enviados por toda la flota.' : 'Envía tu comprobante y consulta los que ya registraste.'} onAdd={() => setModal({type:'fuel'})}><Fuel data={data} drivers={drivers} profile={profile} isAdmin={profile?.role === 'admin' && !driverPreview} onEdit={record => setModal({type:'fuel',record})} onDelete={record => remove('fuels',record.id)} /></List>}
       {view === 'kpi' && ((profile?.role === 'admin' && !driverPreview) || (profile?.role === 'driver' && driverPermissions.kpi)) && <FuelKpi data={data} drivers={drivers} onSaveGallons={saveKpiGallons} />}
       {view === 'vehicles' && <List title="Vehículos" text="Administra placa, odómetro y estado." onAdd={() => setModal({type:'vehicle'})}><Vehicles data={data} onEdit={record => setModal({type:'vehicle',record})} onDelete={record => remove('vehicles',record)} /></List>}
-      {view === 'reports' && <Reports data={data} />}
       {view === 'users' && <UsersPage drivers={drivers} vehicles={data.vehicles} onChanged={loadUsers}/>}
     </main>
     {modal?.type === 'vehicle' && <VehicleModal record={modal.record} onClose={() => setModal(null)} onSave={async record => { if (await update('vehicles', record)) setModal(null); }} />}
@@ -1494,7 +1493,6 @@ function Fuel({data,drivers=[],profile,isAdmin=false,onEdit,onDelete}) {
 }
 function Expenses({data,onEdit,onDelete}) { return <Table heads={['Fecha','Vehículo','Tipo','Detalle','Proveedor','Costo','']} >{data.expenses.slice().reverse().map(x=><tr key={x.id}><td>{date(x.date)}</td><td>{vehicleName(data,x.vehicleId)}</td><td>{x.type}</td><td>{x.detail}</td><td>{x.provider}</td><td>{money(x.cost)}</td><td><Actions onEdit={()=>onEdit(x)} onDelete={()=>onDelete(x)}/></td></tr>)}</Table>; }
 function Vehicles({data,onEdit,onDelete}) { return <div className="vehicle-grid">{data.vehicles.map(v=>{const inRoute=data.trips.some(t=>t.vehicleId===v.id&&!t.endKm);const status=inRoute?'En ruta':(v.status||'Disponible');return <article className="vehicle-card" key={v.id}><div className="card-top"><span className={`badge ${inRoute?'warn':'ok'}`}>{status}</span><VehicleActions onEdit={()=>onEdit(v)} onDelete={()=>onDelete(v)}/></div><div className="vehicle-plate">{v.plate}</div><p>{v.vehicle_type==='Camioneta'?'Carro':(v.vehicle_type || 'Carro')} · {v.brand} {v.model}</p>{v.driver&&<div className="info-line">Chofer: {v.driver}</div>}<div className="info-line">Odómetro actual</div><h2>{currentKm(data,v).toLocaleString('es-PE')} km</h2></article>})}</div>; }
-function Reports({data}) { const download=()=>{const rows=[['Tipo','Fecha','Vehículo','Detalle','Costo'],...data.trips.map(t=>['Recorrido',t.departureDate,vehicleName(data,t.vehicleId),`${t.origin} - ${t.destination}`,t.endKm?Number(t.endKm)-Number(t.startKm):'']),...data.fuels.map(x=>['Combustible',x.date,vehicleName(data,x.vehicleId),`${x.product || 'Combustible'} · ${x.gallons ?? x.liters ?? '—'} galones`,x.cost]),...data.expenses.map(x=>['Gasto',x.date,vehicleName(data,x.vehicleId),`${x.type}: ${x.detail}`,x.cost])];const blob=new Blob(['\ufeff'+rows.map(r=>r.map(v=>`"${String(v||'').replaceAll('"','""')}"`).join(',')).join('\n')],{type:'text/csv'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='RutaControl.csv';a.click();};return <section><div className="grid-two"><article className="panel"><h2>Exportar a Excel</h2><p>Descarga un CSV compatible con Excel.</p><br/><button className="primary" onClick={download}>⇩ Descargar Excel</button></article><article className="panel"><h2>Exportar a PDF</h2><p>Usa la impresión del navegador para guardar el reporte en PDF.</p><br/><button className="primary" onClick={()=>print()}>⇩ Guardar como PDF</button></article></div></section>; }
 function UsersPage({drivers,vehicles,onChanged}) {
   const [form,setForm]=useState({fullName:'',accessCode:'',pin:''});
   const [message,setMessage]=useState('');
