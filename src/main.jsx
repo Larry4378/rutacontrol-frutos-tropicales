@@ -804,6 +804,17 @@ function App() {
       return false;
     }
   };
+  const deleteImportedFuelExcel = async () => {
+    const importedRecords = data.fuels.filter(record => record.provider === 'Excel proveedor' && record.documentDetails?.some(item => item.key === 'importSource'));
+    if (!importedRecords.length) return alert('No hay datos importados desde un Excel del grifo para eliminar.');
+    if (!confirm(`Se eliminarán ${importedRecords.length} registros importados desde Excel. Los recorridos no se modificarán. ¿Deseas continuar?`)) return false;
+    const ids = importedRecords.map(record => record.id);
+    const { error } = await supabase.from('fuel_records').delete().in('id', ids);
+    if (error) { alert(`No se pudieron eliminar los datos importados: ${error.message}`); return false; }
+    setData(previous => ({ ...previous, fuels: previous.fuels.filter(record => !ids.includes(record.id)) }));
+    setSuccessMessage('Datos importados del Excel eliminados. Ya puedes importar otro archivo.');
+    return true;
+  };
 
   if (showSplash) return <SplashScreen/>;
   if (!authReady) return <section className="login-screen"><div className="login-card"><p>Conectando con FTP - ODOMETRO…</p></div></section>;
@@ -815,7 +826,7 @@ function App() {
     <main className={modal ? 'modal-open' : ''}>{error && <p className="sync-error">{error}</p>}<header><div><p className="eyebrow">FRUTOS TROPICALES EXPORT. PERÚ · CONTROL VEHICULAR</p><h1>{title}</h1></div><div className="header-actions"><PwaInstallButton installed={webAppInstalled} onInstall={installWebApp}/><button className="mobile-logout" onClick={logout}>↪ Cerrar sesión</button></div></header>
       {view === 'dashboard' && <Dashboard data={data} profile={profile} driverPreview={driverPreview} km={tripsKm} permissions={profile?.role === 'driver' && !driverPreview ? driverPermissions : {departure:true,arrival:true}} assignmentReady={profileReady && vehiclesReady} driverName={profile?.role === 'driver' ? profile.full_name : ''} onGo={setView} onDeparture={() => setModal({type:'quickDeparture'})} onReturn={() => setModal({type:'quickReturn'})} onTripUpdate={record => update('trips',record)} tripForm={modal?.type === 'quickDeparture' ? <DepartureGpsRequired data={data} drivers={tripDrivers} driverName={profile?.role === 'driver' ? profile.full_name : ''} driverId={profile?.role === 'driver' && !driverPreview ? profile.id : ''} assignedVehicleId={profile?.role === 'driver' && !driverPreview ? profile.permissions?.assignedVehicleId : ''} assignedVehicleLabel={profile?.role === 'driver' && !driverPreview ? profile.permissions?.assignedVehicleLabel : ''} onClose={() => setModal(null)} onSave={async record => { const saved={...record,...(window.departureEvidence||{}),departureTime:now()}; const registered=await update('trips',saved); if(registered){setModal(null);setSuccessMessage('Salida registrada correctamente.');} return registered; }} /> : modal?.type === 'quickReturn' ? <ArrivalSimple data={data} driverName={profile?.role === 'driver' && !driverPreview ? profile.full_name : ''} driverId={profile?.role === 'driver' && !driverPreview ? profile.id : ''} onClose={() => setModal(null)} onSave={async record => { const registered=await update('trips',{...record,returnTime:now()}); if(registered){setModal(null);setSuccessMessage('Llegada registrada correctamente.');} return registered; }} /> : null} />}
       {view === 'trips' && <List title="Historial de recorridos" text="Consulta, filtra y edita las salidas y llegadas registradas." hideAdd><Trips data={data} drivers={tripHistoryDrivers} profile={profile} onEdit={record => setModal({type:'trip',record})} onDelete={record => remove('trips',record.id)} /></List>}
-      {view === 'kpi' && ((profile?.role === 'admin' && !driverPreview) || (profile?.role === 'driver' && driverPermissions.kpi)) && <FuelKpi data={data} drivers={drivers} onSaveGallons={saveKpiGallons} onImportExcel={importFuelExcel} />}
+      {view === 'kpi' && ((profile?.role === 'admin' && !driverPreview) || (profile?.role === 'driver' && driverPermissions.kpi)) && <FuelKpi data={data} drivers={drivers} onSaveGallons={saveKpiGallons} onImportExcel={importFuelExcel} onDeleteImportedExcel={deleteImportedFuelExcel} />}
       {view === 'vehicles' && <List title="Vehículos" text="Administra placa, odómetro y estado." onAdd={() => setModal({type:'vehicle'})}><Vehicles data={data} onEdit={record => setModal({type:'vehicle',record})} onDelete={record => remove('vehicles',record)} /></List>}
       {view === 'users' && <UsersPage drivers={drivers} vehicles={data.vehicles} onChanged={loadUsers}/>}
     </main>
@@ -1380,7 +1391,7 @@ function Trips({data,drivers=[],profile,onEdit,onDelete}) {
 }
 function Maintenance({data,onEdit,onDelete}) { return <Table heads={['Fecha','Vehículo','Servicio','Próxima fecha / km','']} >{data.maintenance.slice().reverse().map(x=><tr key={x.id}><td>{date(x.date)}</td><td>{vehicleName(data,x.vehicleId)}</td><td>{x.type}</td><td>{x.nextDate || '—'} {x.nextKm ? ` / ${x.nextKm} km` : ''}</td><td><Actions onEdit={()=>onEdit(x)} onDelete={()=>onDelete(x)}/></td></tr>)}</Table>; }
 function FuelKpi({ data, drivers = [], onSaveGallons }) {
-  const { onImportExcel } = arguments[0];
+  const { onImportExcel, onDeleteImportedExcel } = arguments[0];
   const [monthFilter, setMonthFilter] = useState('');
   const [vehicleFilter, setVehicleFilter] = useState('');
   const rows = data.fuels.slice().sort((a,b) => `${b.date||''}${b.time||''}`.localeCompare(`${a.date||''}${a.time||''}`));
@@ -1483,6 +1494,9 @@ function FuelKpi({ data, drivers = [], onSaveGallons }) {
     link.click();
     URL.revokeObjectURL(link.href);
   };
+  // La acción visible ahora es eliminar y volver a importar; se conserva la
+  // función de descarga para compatibilidad con versiones anteriores.
+  const legacyKpiDownloadLabel = 'Descargar Excel KPI';
   const weeklyHeads = ['Usuario', 'Tipo vehículo', 'Placa', ...weeklyMonths.flatMap(month => Array.from({ length: 5 }, (_, index) => `${monthLabel(month)} · Sem ${index + 1}`)), 'Total general'];
   return <section className="panel kpi-panel">
     <div className="panel-title"><div><p className="eyebrow">CONTROL DE RENDIMIENTO MENSUAL</p><h2>Rendimiento Km/Gl · KPI</h2><p>Cruza los kilómetros de Recorridos con los galones registrados en Combustible por mes.</p></div></div>
@@ -1502,7 +1516,7 @@ function FuelKpi({ data, drivers = [], onSaveGallons }) {
       </select>
       <div className="kpi-actions">
         <label className="secondary kpi-upload-button">⇧ Importar Excel del grifo<input type="file" accept=".xlsx,.xls,.csv" onChange={event => { const file = event.target.files?.[0]; if (file) onImportExcel?.(file); event.target.value = ''; }} /></label>
-        <button type="button" className="primary" onClick={downloadKpi} disabled={!data.fuels.length}>⇩ Descargar Excel KPI</button>
+        <button type="button" className="danger-button" onClick={onDeleteImportedExcel}>Eliminar datos importados</button>
       </div>
     </div>
     {monthlyRows.length > 0 ? <>
