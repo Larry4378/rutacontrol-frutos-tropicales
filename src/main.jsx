@@ -1392,8 +1392,10 @@ function FuelKpi({ data, drivers = [], onSaveGallons }) {
     const groups = new Map();
     const getGroup = (vehicleId, month) => {
       const groupKey = `${vehicleId || 'sin-vehiculo'}|${month}`;
+      const tripDriverId = data.trips.find(trip => String(trip.vehicleId) === String(vehicleId) && monthKey(trip.departureDate) === month)?.driverProfileId;
+      const tripDriver = drivers.find(item => String(item.id) === String(tripDriverId));
       const assignedDriver = drivers.find(item => String(item.permissions?.assignedVehicleId || '') === String(vehicleId));
-      if (!groups.has(groupKey)) groups.set(groupKey, { vehicleId, month, user: assignedDriver?.full_name || 'Usuario sin nombre', km: 0, gallons: 0, manualGallons: null, manualRecordId: '', manualStamp: '' });
+      if (!groups.has(groupKey)) groups.set(groupKey, { vehicleId, month, user: tripDriver?.full_name || assignedDriver?.full_name || 'Usuario sin nombre', km: 0, gallons: 0, manualGallons: null, manualRecordId: '', manualStamp: '' });
       return groups.get(groupKey);
     };
     data.fuels.forEach(record => {
@@ -1449,9 +1451,11 @@ function FuelKpi({ data, drivers = [], onSaveGallons }) {
       const month = monthKey(record.date);
       if (!month || !Number.isFinite(gallons) || gallons <= 0 || !record.vehicleId) return;
       const vehicle = data.vehicles.find(item => String(item.id) === String(record.vehicleId));
+      const tripDriverId = data.trips.find(trip => String(trip.vehicleId) === String(record.vehicleId) && monthKey(trip.departureDate) === month)?.driverProfileId;
+      const tripDriver = drivers.find(item => String(item.id) === String(tripDriverId));
       const assignedDriver = drivers.find(item => String(item.permissions?.assignedVehicleId || '') === String(record.vehicleId));
       const key = String(record.vehicleId);
-      if (!groups.has(key)) groups.set(key, { user: assignedDriver?.full_name || drivers.find(item => String(item.id) === String(record.createdBy))?.full_name || 'Usuario sin nombre', vehicleType: vehicle?.vehicle_type === 'Camioneta' ? 'CARRO' : String(vehicle?.vehicle_type || 'CARRO').toUpperCase(), plate: vehicle?.plate || '—', values: Array(weeklyMonths.length * 5).fill(0), total: 0 });
+      if (!groups.has(key)) groups.set(key, { user: tripDriver?.full_name || assignedDriver?.full_name || drivers.find(item => String(item.id) === String(record.createdBy))?.full_name || 'Usuario sin nombre', vehicleType: vehicle?.vehicle_type === 'Camioneta' ? 'CARRO' : String(vehicle?.vehicle_type || 'CARRO').toUpperCase(), plate: vehicle?.plate || '—', values: Array(weeklyMonths.length * 5).fill(0), total: 0 });
       const group = groups.get(key);
       const monthIndex = weeklyMonths.indexOf(month);
       const day = Number(String(record.date).slice(8, 10)) || 1;
