@@ -7,6 +7,7 @@ import { GPS_TRACKING_MAX_ACCURACY_METERS, formatGpsCoordinates, getPreciseGpsPo
 import { addNativeLocationListener, getNativeLocationStatus, isNativeAndroidLocation, startNativeLocationTracking, stopNativeLocationTracking } from './native-location.js';
 import { arrivalSubmissionError, isPositiveKilometer, normalizeKilometerInput } from './odometer-form.js';
 import { buildKpiWeeklyExportXlsx, buildTripExportRows, buildTripExportXlsx } from './trip-export.js';
+import * as XLSX from 'xlsx';
 import 'leaflet/dist/leaflet.css';
 import '../styles.css';
 import '../mango.css';
@@ -734,6 +735,75 @@ function App() {
     if (saved) setSuccessMessage('Galones mensuales guardados correctamente.');
     return saved;
   };
+  const importFuelExcel = async file => {
+    if (!file) return false;
+    try {
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null, raw: true });
+      const headerIndex = matrix.findIndex(row => row.some(cell => /^(placa|volumen|fecha|galones?)$/i.test(String(cell || '').trim())) && row.some(cell => /volumen|galones?/i.test(String(cell || ''))));
+      if (headerIndex < 0) throw new Error('No encontré las columnas Placa, Fecha y Volumen en el Excel.');
+      const headers = matrix[headerIndex].map(cell => String(cell || '').trim().toLocaleLowerCase('es-PE'));
+      const column = expression => headers.findIndex(header => expression.test(header));
+      const plateIndex = column(/placa|matricula|matrícula/);
+      const dateIndex = column(/^fecha|fecha de/);
+      const timeIndex = column(/^hora/);
+      const volumeIndex = column(/volumen|galones?|cantidad|gln/);
+      const driverIndex = column(/conductor|chofer|usuario/);
+      if ([plateIndex, dateIndex, volumeIndex].some(index => index < 0)) throw new Error('El Excel no contiene placa, fecha y volumen de combustible.');
+      const normalizePlate = value => String(value || '').replace(/[^a-z0-9]/gi, '').toUpperCase();
+      const parseDate = value => {
+        if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().slice(0, 10);
+        if (typeof value === 'number') {
+          const parsed = XLSX.SSF.parse_date_code(value);
+          if (parsed?.y && parsed?.m && parsed?.d) return `${parsed.y}-${String(parsed.m).padStart(2, '0')}-${String(parsed.d).padStart(2, '0')}`;
+        }
+        const text = String(value || '').trim();
+        const match = text.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})/);
+        if (match) return `${match[3].length === 2 ? `20${match[3]}` : match[3]}-${String(match[2]).padStart(2, '0')}-${String(match[1]).padStart(2, '0')}`;
+        const iso = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        return iso ? iso[0] : '';
+      };
+      const parseNumber = value => {
+        if (typeof value === 'number') return value;
+        const text = String(value || '').replace(/\s/g, '').replace(/\.(?=\d{3}(?:\D|$))/g, '').replace(',', '.');
+        return Number(text);
+      };
+      const weekOfMonth = value => Math.min(5, Math.floor((Number(value.slice(8, 10)) - 1) / 7) + 1);
+      const vehiclesByPlate = new Map(data.vehicles.map(vehicle => [normalizePlate(vehicle.plate), vehicle]));
+      const groups = new Map();
+      let skipped = 0;
+      matrix.slice(headerIndex + 1).forEach(row => {
+        const dateValue = parseDate(row[dateIndex]);
+        const plate = normalizePlate(row[plateIndex]);
+        const gallons = parseNumber(row[volumeIndex]);
+        const vehicle = vehiclesByPlate.get(plate);
+        if (!dateValue || !plate || !(gallons > 0) || !vehicle) { skipped += 1; return; }
+        const key = `${vehicle.id}|${dateValue.slice(0, 7)}|${weekOfMonth(dateValue)}`;
+        const current = groups.get(key) || { vehicleId: vehicle.id, date: dateValue, gallons: 0, cost: 0, rows: 0, driver: driverIndex >= 0 ? String(row[driverIndex] || '') : '' };
+        current.gallons += gallons;
+        current.cost += Math.max(0, parseNumber(row[headers.findIndex(header => /total|importe|monto/.test(header))]));
+        current.rows += 1;
+        groups.set(key, current);
+      });
+      if (!groups.size) throw new Error('No encontré consumos válidos vinculables a las placas del sistema.');
+      const imported = [];
+      for (const group of groups.values()) {
+        const existing = data.fuels.find(record => record.provider === 'Excel proveedor' && record.vehicleId === group.vehicleId && record.date === group.date && record.documentDetails?.some(item => item.key === 'importSource' && item.value === file.name));
+        const saved = await update('fuels', {
+          ...(existing || {}), id: existing?.id || id(), _saved: Boolean(existing), vehicleId: group.vehicleId,
+          date: group.date, provider: 'Excel proveedor', gallons: Number(group.gallons.toFixed(3)), cost: Number(group.cost.toFixed(2)),
+          reviewStatus: 'Datos detectados', documentDetails: [{ key: 'importSource', label: 'Origen', value: file.name }, { key: 'importRows', label: 'Filas agrupadas', value: String(group.rows) }],
+        });
+        if (saved) imported.push(saved);
+      }
+      if (imported.length) setSuccessMessage(`Excel importado: ${imported.length} consumos agrupados. ${skipped ? `${skipped} filas no se pudieron vincular.` : ''}`);
+      return Boolean(imported.length);
+    } catch (error) {
+      alert(`No se pudo importar el Excel: ${error.message}`);
+      return false;
+    }
+  };
 
   if (showSplash) return <SplashScreen/>;
   if (!authReady) return <section className="login-screen"><div className="login-card"><p>Conectando con FTP - ODOMETRO…</p></div></section>;
@@ -745,7 +815,7 @@ function App() {
     <main className={modal ? 'modal-open' : ''}>{error && <p className="sync-error">{error}</p>}<header><div><p className="eyebrow">FRUTOS TROPICALES EXPORT. PERÚ · CONTROL VEHICULAR</p><h1>{title}</h1></div><div className="header-actions"><PwaInstallButton installed={webAppInstalled} onInstall={installWebApp}/><button className="mobile-logout" onClick={logout}>↪ Cerrar sesión</button></div></header>
       {view === 'dashboard' && <Dashboard data={data} profile={profile} driverPreview={driverPreview} km={tripsKm} permissions={profile?.role === 'driver' && !driverPreview ? driverPermissions : {departure:true,arrival:true}} assignmentReady={profileReady && vehiclesReady} driverName={profile?.role === 'driver' ? profile.full_name : ''} onGo={setView} onDeparture={() => setModal({type:'quickDeparture'})} onReturn={() => setModal({type:'quickReturn'})} onTripUpdate={record => update('trips',record)} tripForm={modal?.type === 'quickDeparture' ? <DepartureGpsRequired data={data} drivers={tripDrivers} driverName={profile?.role === 'driver' ? profile.full_name : ''} driverId={profile?.role === 'driver' && !driverPreview ? profile.id : ''} assignedVehicleId={profile?.role === 'driver' && !driverPreview ? profile.permissions?.assignedVehicleId : ''} assignedVehicleLabel={profile?.role === 'driver' && !driverPreview ? profile.permissions?.assignedVehicleLabel : ''} onClose={() => setModal(null)} onSave={async record => { const saved={...record,...(window.departureEvidence||{}),departureTime:now()}; const registered=await update('trips',saved); if(registered){setModal(null);setSuccessMessage('Salida registrada correctamente.');} return registered; }} /> : modal?.type === 'quickReturn' ? <ArrivalSimple data={data} driverName={profile?.role === 'driver' && !driverPreview ? profile.full_name : ''} driverId={profile?.role === 'driver' && !driverPreview ? profile.id : ''} onClose={() => setModal(null)} onSave={async record => { const registered=await update('trips',{...record,returnTime:now()}); if(registered){setModal(null);setSuccessMessage('Llegada registrada correctamente.');} return registered; }} /> : null} />}
       {view === 'trips' && <List title="Historial de recorridos" text="Consulta, filtra y edita las salidas y llegadas registradas." hideAdd><Trips data={data} drivers={tripHistoryDrivers} profile={profile} onEdit={record => setModal({type:'trip',record})} onDelete={record => remove('trips',record.id)} /></List>}
-      {view === 'kpi' && ((profile?.role === 'admin' && !driverPreview) || (profile?.role === 'driver' && driverPermissions.kpi)) && <FuelKpi data={data} drivers={drivers} onSaveGallons={saveKpiGallons} />}
+      {view === 'kpi' && ((profile?.role === 'admin' && !driverPreview) || (profile?.role === 'driver' && driverPermissions.kpi)) && <FuelKpi data={data} drivers={drivers} onSaveGallons={saveKpiGallons} onImportExcel={importFuelExcel} />}
       {view === 'vehicles' && <List title="Vehículos" text="Administra placa, odómetro y estado." onAdd={() => setModal({type:'vehicle'})}><Vehicles data={data} onEdit={record => setModal({type:'vehicle',record})} onDelete={record => remove('vehicles',record)} /></List>}
       {view === 'users' && <UsersPage drivers={drivers} vehicles={data.vehicles} onChanged={loadUsers}/>}
     </main>
@@ -1310,6 +1380,7 @@ function Trips({data,drivers=[],profile,onEdit,onDelete}) {
 }
 function Maintenance({data,onEdit,onDelete}) { return <Table heads={['Fecha','Vehículo','Servicio','Próxima fecha / km','']} >{data.maintenance.slice().reverse().map(x=><tr key={x.id}><td>{date(x.date)}</td><td>{vehicleName(data,x.vehicleId)}</td><td>{x.type}</td><td>{x.nextDate || '—'} {x.nextKm ? ` / ${x.nextKm} km` : ''}</td><td><Actions onEdit={()=>onEdit(x)} onDelete={()=>onDelete(x)}/></td></tr>)}</Table>; }
 function FuelKpi({ data, drivers = [], onSaveGallons }) {
+  const { onImportExcel } = arguments[0];
   const [monthFilter, setMonthFilter] = useState('');
   const [vehicleFilter, setVehicleFilter] = useState('');
   const rows = data.fuels.slice().sort((a,b) => `${b.date||''}${b.time||''}`.localeCompare(`${a.date||''}${a.time||''}`));
@@ -1330,7 +1401,8 @@ function FuelKpi({ data, drivers = [], onSaveGallons }) {
       const gallons = Number(record.gallons);
       if (!month || !Number.isFinite(gallons) || gallons <= 0) return;
       const group = getGroup(record.vehicleId, month);
-      if (record.provider === 'Excel proveedor') {
+      const importedFromExcel = record.provider === 'Excel proveedor' && record.documentDetails?.some(item => item.key === 'importSource');
+      if (record.provider === 'Excel proveedor' && !importedFromExcel) {
         const stamp = `${record.date || ''}T${record.time || ''}`;
         if (!group.manualStamp || stamp >= group.manualStamp) {
           if (group.manualGallons !== null) group.gallons -= group.manualGallons;
@@ -1357,13 +1429,14 @@ function FuelKpi({ data, drivers = [], onSaveGallons }) {
   const effectiveFuelRecords = useMemo(() => {
     const latestManual = new Map();
     data.fuels.forEach(record => {
-      if (record.provider !== 'Excel proveedor' || !record.vehicleId) return;
+      if (record.provider !== 'Excel proveedor' || !record.vehicleId || record.documentDetails?.some(item => item.key === 'importSource')) return;
       const key = `${record.vehicleId}|${monthKey(record.date)}`;
       const stamp = `${record.date || ''}T${record.time || ''}`;
       if (!latestManual.has(key) || stamp >= latestManual.get(key).stamp) latestManual.set(key, { id: record.id, stamp });
     });
     return data.fuels.filter(record => {
       if (record.provider !== 'Excel proveedor') return true;
+      if (record.documentDetails?.some(item => item.key === 'importSource')) return true;
       const latest = latestManual.get(`${record.vehicleId}|${monthKey(record.date)}`);
       return latest?.id === record.id;
     });
@@ -1413,7 +1486,10 @@ function FuelKpi({ data, drivers = [], onSaveGallons }) {
         <option value="">Todos los vehículos</option>
         {data.vehicles.map(vehicle => <option key={vehicle.id} value={vehicle.id}>{vehicle.plate} · {vehicle.brand}</option>)}
       </select>
-      <button type="button" className="primary" onClick={downloadKpi} disabled={!data.fuels.length}>⇩ Descargar Excel KPI</button>
+      <div className="kpi-actions">
+        <label className="secondary kpi-upload-button">⇧ Importar Excel del grifo<input type="file" accept=".xlsx,.xls,.csv" onChange={event => { const file = event.target.files?.[0]; if (file) onImportExcel?.(file); event.target.value = ''; }} /></label>
+        <button type="button" className="primary" onClick={downloadKpi} disabled={!data.fuels.length}>⇩ Descargar Excel KPI</button>
+      </div>
     </div>
     {monthlyRows.length > 0 ? <>
       <div className="kpi-section-title"><h3>Resumen mensual</h3><p>Los kilómetros salen de los recorridos completados. Escribe aquí los galones del reporte del grifo.</p></div>
